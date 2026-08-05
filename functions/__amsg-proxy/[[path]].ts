@@ -20,9 +20,15 @@ export const onRequest = async (context: { request: Request; params: Record<stri
   forward.delete('origin');
   forward.delete('referer');
 
-  const body = request.method === 'GET' || request.method === 'HEAD'
-    ? undefined
-    : await request.arrayBuffer();
+  let body: ArrayBuffer | undefined;
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    const raw = await request.arrayBuffer();
+    if (raw.byteLength > 0) body = raw;
+    else if (path === 'init-tenant') {
+      body = new TextEncoder().encode('{}').buffer;
+      forward.set('content-type', 'application/json');
+    }
+  }
   const response = await fetch(upstream, {
     method: request.method,
     headers: forward,
