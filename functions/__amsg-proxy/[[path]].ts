@@ -19,6 +19,7 @@ export const onRequest = async (context: { request: Request; params: Record<stri
   forward.delete('host');
   forward.delete('origin');
   forward.delete('referer');
+  forward.delete('content-length');
 
   let body: ArrayBuffer | undefined;
   if (request.method !== 'GET' && request.method !== 'HEAD') {
