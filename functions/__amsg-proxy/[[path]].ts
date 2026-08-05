@@ -26,7 +26,7 @@ export const onRequest = async (context: { request: Request; params: Record<stri
     const raw = await request.arrayBuffer();
     if (raw.byteLength > 0) body = raw;
     else if (path === 'init-tenant') {
-      body = new TextEncoder().encode('{}').buffer;
+      body = new TextEncoder().encode('{"contactName":"SullyOS"}').buffer;
       forward.set('content-type', 'application/json');
     }
   }
