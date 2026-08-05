@@ -138,7 +138,18 @@ const REMOTE_TASK_NOT_FOUND_CODE = 'TASK_NOT_FOUND';
 
 // 单用户模式：所有请求打到用户自部署的 Cloudflare Worker（config.workerUrl）。
 // 配了 serverToken 就每次带 X-Client-Token；worker 端配了就强制校验，缺/错回 401。
-const normalizeWorkerBase = (workerUrl: string) => workerUrl.trim().replace(/\/+$/, '');
+const normalizeWorkerBase = (workerUrl: string) => {
+  const normalized = workerUrl.trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.hostname.endsWith('workers.dev') && typeof window !== 'undefined') {
+      return `${window.location.origin}/__amsg-proxy`;
+    }
+  } catch {
+    // Preserve the original value so existing validation can report it.
+  }
+  return normalized;
+};
 
 const createClient = (config: Pick<ActiveMsg2GlobalConfig, 'userId' | 'workerUrl' | 'serverToken'>) =>
   new ReiClient({
