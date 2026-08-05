@@ -20,10 +20,13 @@ export const onRequest = async (context: { request: Request; params: Record<stri
   forward.delete('origin');
   forward.delete('referer');
 
+  const body = request.method === 'GET' || request.method === 'HEAD'
+    ? undefined
+    : await request.arrayBuffer();
   const response = await fetch(upstream, {
     method: request.method,
     headers: forward,
-    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer(),
+    body: body && body.byteLength > 0 ? body : undefined,
   });
   const out = new Headers(response.headers);
   Object.entries(headers).forEach(([key, value]) => out.set(key, value));
