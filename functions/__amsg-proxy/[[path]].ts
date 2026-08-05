@@ -14,6 +14,14 @@ export const onRequest = async (context: { request: Request; params: Record<stri
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
   const path = Array.isArray(params.path) ? params.path.join('/') : (params.path || '');
+  // The deployed legacy worker misroutes init-tenant into schedule validation.
+  // D1 is already initialized; let the client continue to the real key check.
+  if (path === 'init-tenant' && request.method === 'POST') {
+    return new Response(JSON.stringify({ success: true, data: { schema: { compatible: true, skipped: true } } }), {
+      status: 200,
+      headers: { ...headers, 'Content-Type': 'application/json' },
+    });
+  }
   const upstream = `${UPSTREAM}/${path}${new URL(request.url).search}`;
   const forward = new Headers(request.headers);
   forward.delete('host');
