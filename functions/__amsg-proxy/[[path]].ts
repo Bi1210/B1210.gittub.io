@@ -13,7 +13,9 @@ export const onRequest = async (context: { request: Request; params: Record<stri
   const headers = cors(request);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-  const path = Array.isArray(params.path) ? params.path.join('/') : (params.path || '');
+  const requestPath = new URL(request.url).pathname.replace(/^\/__amsg-proxy\/?/, '').replace(/\/+$/, '');
+  const pathFromParams = Array.isArray(params.path) ? params.path.join('/') : (params.path || '');
+  const path = requestPath || pathFromParams;
   // The deployed legacy worker misroutes init-tenant into schedule validation.
   // D1 is already initialized; let the client continue to the real key check.
   if (path === 'init-tenant' && request.method === 'POST') {
