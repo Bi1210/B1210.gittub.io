@@ -889,15 +889,20 @@ const fetchWithAuthRaw = async (
   if (config.serverToken) headers.set('X-Client-Token', config.serverToken);
   headers.set('X-User-Id', config.userId);
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(`${normalizeWorkerBase(config.workerUrl)}/${path}`, {
       ...init,
       headers,
+      signal: controller.signal,
     });
 
     return { status: response.status, body: await safeResponseJson(response) };
   } catch (error) {
     throw normalizeActiveMsgApiError(error, phase);
+  } finally {
+    clearTimeout(timeout);
   }
 };
 
