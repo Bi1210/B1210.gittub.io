@@ -1193,20 +1193,20 @@ const Chat: React.FC = () => {
         await reloadMessages(visibleCountRef.current);
         setShowPanel('none');
 
-        // Instant Push 模式：发完文本自动触发 AI（响应在 worker 端跑、后台 push 回写聊天页）。
-        // 本地模式仍维持手动触发以保留现有 UX。triggerAI 内部会从 DB 拉完整历史，
-        // 闭包里的 messages 还没包含刚写入的 user msg 也没关系。
-        // 仅文本消息触发；image / xhs_card 等卡片消息不触发，与本地手动行为对齐。
-        // autoTriggerOnSend gate：instant ready 也只在用户显式开启"发送后自动触发"时才自动回复，
-        // 否则保留手动 ⚡（避免"启用 instant = 自动回复"的反直觉强绑定）。
-        const instantCfg = loadInstantConfig();
-        if (type === 'text' && isInstantConfigReady(instantCfg) && instantCfg.autoTriggerOnSend) {
-            // 上一轮还在跑时直接跳过：triggerAI 内部会因 isTyping=true 静默 reject，
-            // 提前 guard 避免点亮"准备中"指示灯后没人来清，UI 灯被卡住。
+        // 文字消息发送后自动请求 AI 回复：普通聊天不再要求用户额外点击顶部 ⚡。
+        // Instant Push 已配置且开启自动触发时，继续走远端即时通道；否则走现有本地 API。
+        // 图片、表情、卡片等特殊消息仍保持原来的手动触发行为。
+        if (type === 'text') {
             if (isTyping) return;
-            // 标记"准备中"三个点：拼接+发送期间显示，SSE POST 入队 (onInstantPosted) 后清除。
-            setInstantSendingActive(true);
-            triggerAI(messages, undefined, () => setInstantSendingActive(false));
+            const instantCfg = loadInstantConfig();
+            if (isInstantConfigReady(instantCfg) && instantCfg.autoTriggerOnSend) {
+                // 标记“发送中”状态：远端请求入队后由回调清除，finally 再兜底。
+                setInstantSendingActive(true);
+                triggerAI(messages, undefined, () => setInstantSendingActive(false));
+            } else {
+                // 未启用 Instant Push 时，直接使用现有本地 AI 请求。
+                triggerAI(messages);
+            }
         }
     };
 
