@@ -3345,6 +3345,30 @@ export interface EchoesWritingGuide {
     authorInstructions: string;
 }
 
+/**
+ * Echoes 写作协议：借鉴成熟角色/世界平台的协议化提示设计，
+ * 将“好看”之外最重要的连续性、能动性和角色自主性变成可开关的底层规则。
+ * 这是本世界的写作运行配置，不属于剧情内容，也不会暴露给角色。
+ */
+export interface EchoesProtocolConfig {
+    /** 协议总开关；关闭后仍保留基础安全和 JSON 输出约束。 */
+    enabled: boolean;
+    /** 把硬事实、玩家已知、导演账本和创作空间分层注入提示词。 */
+    continuityLedger: boolean;
+    /** 不替玩家决定关键行动、台词、内心和选择。 */
+    playerAgency: boolean;
+    /** 角色按目标、信息、能力、利益和关系自主行动，不为玩家服务式降智。 */
+    characterAutonomy: boolean;
+    /** 增加感官、动作、空间和节奏信息，避免流水账。 */
+    sensoryWriting: boolean;
+    /** 每轮要求至少产生可感知的推进或变化，但允许安静场景。 */
+    meaningfulProgress: boolean;
+    /** 让 AI 输出可供 UI 使用的章节情绪、场景类型和状态变化。 */
+    sceneObservation: boolean;
+    /** 自定义协议补充指令，作为作者层规则注入。 */
+    customInstructions: string;
+}
+
 export interface EchoesUIProfile {
     layout: EchoesLayout;
     theme: EchoesTheme;
@@ -3364,6 +3388,12 @@ export interface EchoesUIProfile {
     showStatus: boolean;
     showFacts: boolean;
     showSourceToggle: boolean;
+    /** 新段落逐字显示，增强"正在发生"的沉浸感；默认开启，可关闭。 */
+    typewriterEffect?: boolean;
+    /** 每个回合顶部显示纯文字氛围卡（章节名/情绪标签/地点时间），不是人物立绘。 */
+    showMoodCard?: boolean;
+    /** 世界观自适应 UI 是否已被用户手动覆盖；true 时不再被创建流程的自动推断覆盖。 */
+    adaptiveLocked?: boolean;
     labels: EchoesLabels;
 }
 
@@ -3418,6 +3448,8 @@ export interface EchoesTurn {
     blocks: EchoesContentBlock[];
     suggestions: string[];
     chapter: string;
+    /** 本回合的情绪/氛围标签，用于顶部纯文字氛围卡展示，如"压抑"、"温柔"、"紧张对峙"。 */
+    mood?: string;
     beforeState: EchoesState;
     afterState: EchoesState;
     beforeDirector?: EchoesDirectorState;
@@ -3450,6 +3482,8 @@ export interface EchoesWorld {
     director: EchoesDirectorState;
     /** 写作指导，注入到每轮 AI 提示词。 */
     writingGuide: EchoesWritingGuide;
+    /** 棉花糖式协议层：将作者要求拆成可控、可解释的底层规则。 */
+    protocol: EchoesProtocolConfig;
     /** 长篇压缩记忆；只作为辅助上下文，不能覆盖硬事实。 */
     continuitySummary: string;
     hardFacts: string[];
