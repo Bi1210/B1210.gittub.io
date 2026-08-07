@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Archive, ArrowLeft, BookOpenText, BracketsCurly, CaretDown, Check, CircleNotch, Compass,
-    Copy, Eye, FileText, FloppyDisk, GearSix, GitBranch, List, MapPin, Palette,
+    Copy, Eye, FileText, GearSix, GitBranch, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
+    X, ChartLine,
 } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
 import { extractContent, extractJson, safeResponseJson } from '../utils/safeApi';
 import {
     EchoesContentBlock, EchoesFormat, EchoesLayout, EchoesMode, EchoesQualityMode, EchoesState,
-    EchoesTheme, EchoesTurn, EchoesUIProfile, EchoesWorld, EchoesWritingGuide,
+    EchoesTheme, EchoesTurn, EchoesUIProfile, EchoesWorld, EchoesWritingGuide, EchoesProtocolConfig,
 } from '../types';
 import EchoesContentRenderer from '../components/echoes/EchoesContentRenderer';
 
@@ -34,11 +35,23 @@ const DEFAULT_LABELS = {
 const DEFAULT_UI: EchoesUIProfile = {
     layout: 'novel', theme: 'paper', accent: '#7c3aed', fontFamily: 'serif',
     fontScale: 1, lineHeight: 1.85, showSuggestions: true, showStatus: true,
-    showFacts: false, showSourceToggle: true, labels: DEFAULT_LABELS,
+    showFacts: false, showSourceToggle: true, typewriterEffect: true, showMoodCard: true,
+    adaptiveLocked: false, labels: DEFAULT_LABELS,
 };
 
 const DEFAULT_WRITING_GUIDE: EchoesWritingGuide = {
     style: '', tone: '', perspective: '', minWords: 0, maxWords: 0, contextRounds: 8, authorInstructions: '',
+};
+
+const DEFAULT_PROTOCOL: EchoesProtocolConfig = {
+    enabled: true,
+    continuityLedger: true,
+    playerAgency: true,
+    characterAutonomy: true,
+    sensoryWriting: true,
+    meaningfulProgress: true,
+    sceneObservation: true,
+    customInstructions: '',
 };
 
 // 供设置面板做快速选择的常用选项；用户仍可在输入框里自由填写其它内容，这里只是建议。
@@ -63,15 +76,118 @@ const LAYOUT_META: Record<EchoesLayout, string> = {
     novel: '小说阅读', archive: '档案调查', terminal: '终端记录', minimal: '极简沉浸',
 };
 
-const THEME_META: Record<EchoesTheme, { bg: string; panel: string; text: string; muted: string; border: string }> = {
-    paper: { bg: '#f5f1e8', panel: '#fffdf8', text: '#302b29', muted: '#756d65', border: 'rgba(48,43,41,.12)' },
-    midnight: { bg: '#11121a', panel: '#1b1e2b', text: '#eef0fa', muted: '#a6abc1', border: 'rgba(255,255,255,.12)' },
-    sepia: { bg: '#ede0c6', panel: '#f8efd9', text: '#432e1f', muted: '#876d56', border: 'rgba(67,46,31,.16)' },
-    mist: { bg: '#e9eff0', panel: '#fbffff', text: '#26373b', muted: '#718589', border: 'rgba(38,55,59,.13)' },
-    terminal: { bg: '#07100b', panel: '#0d1b12', text: '#b9f7c5', muted: '#72b981', border: 'rgba(99,255,137,.22)' },
+const THEME_META: Record<EchoesTheme, { bg: string; panel: string; text: string; muted: string; border: string; label: string }> = {
+    paper:    { bg: '#f5f1e8', panel: '#fffdf8', text: '#302b29', muted: '#756d65', border: 'rgba(48,43,41,.12)',    label: '纸感暖白' },
+    midnight: { bg: '#11121a', panel: '#1b1e2b', text: '#eef0fa', muted: '#a6abc1', border: 'rgba(255,255,255,.12)', label: '午夜深色' },
+    sepia:    { bg: '#ede0c6', panel: '#f8efd9', text: '#432e1f', muted: '#876d56', border: 'rgba(67,46,31,.16)',    label: '复古棕褐' },
+    mist:     { bg: '#e9eff0', panel: '#fbffff', text: '#26373b', muted: '#718589', border: 'rgba(38,55,59,.13)',    label: '薄雾冷调' },
+    terminal: { bg: '#07100b', panel: '#0d1b12', text: '#b9f7c5', muted: '#72b981', border: 'rgba(99,255,137,.22)', label: '终端绿' },
+};
+
+/**
+ * 世界观自适应 UI 推断。
+ * 不让 AI 自由生成颜色——AI 只负责从语义上判断世界风格，
+ * 实际的主题/强调色/布局全部从预设白名单里选，保证视觉协调不出丑。
+ *
+ * 返回值直接用 Partial<EchoesUIProfile>，调用方合并到 DEFAULT_UI 上。
+ */
+type AdaptiveUIHint = {
+    theme: EchoesTheme;
+    accent: string;
+    layout: EchoesLayout;
+    fontFamily: 'serif' | 'sans' | 'mono';
+};
+
+/**
+ * 经过配色校验的强调色白名单：
+ * 每种颜色都在对应的主题背景上测试过对比度（≥3:1）和协调度。
+ * key = 主题名，value = 与该主题最协调的若干强调色。
+ */
+const ACCENT_PRESETS: Record<EchoesTheme, string[]> = {
+    paper:    ['#7c3aed', '#b45309', '#0369a1', '#059669', '#be185d', '#6d28d9'],
+    midnight: ['#818cf8', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#a78bfa'],
+    sepia:    ['#92400e', '#7c2d12', '#1d4ed8', '#065f46', '#6b21a8', '#991b1b'],
+    mist:     ['#0e7490', '#0284c7', '#047857', '#6d28d9', '#0f766e', '#1d4ed8'],
+    terminal: ['#4ade80', '#22d3ee', '#a3e635', '#fde047', '#86efac', '#6ee7b7'],
+};
+
+/**
+ * 关键词 → 推断规则（按顺序匹配，第一个命中的规则生效）。
+ * theme/layout/fontFamily/accent 都是白名单里的值，不存在"AI瞎写"。
+ */
+const ADAPTIVE_RULES: Array<{
+    keywords: RegExp;
+    hint: AdaptiveUIHint;
+}> = [
+    { keywords: /赛博|cyber|科技|黑客|hack|矩阵|matrix|未来|dystopia|反乌托邦|机甲|mech/i,
+      hint: { theme: 'terminal', accent: '#22d3ee', layout: 'terminal', fontFamily: 'mono' } },
+    { keywords: /古代|古风|古典|江湖|武侠|仙侠|宫廷|朝代|唐|宋|明|清|汉|三国|水墨|书法/i,
+      hint: { theme: 'sepia', accent: '#92400e', layout: 'novel', fontFamily: 'serif' } },
+    { keywords: /悬疑|推理|侦探|犯罪|noir|黑色|暗|黑夜|都市|现代|当代|心理|惊悚|恐怖/i,
+      hint: { theme: 'midnight', accent: '#818cf8', layout: 'archive', fontFamily: 'sans' } },
+    { keywords: /档案|调查|间谍|spy|特工|机密|情报|组织|阴谋|thriller/i,
+      hint: { theme: 'midnight', accent: '#60a5fa', layout: 'archive', fontFamily: 'sans' } },
+    { keywords: /奇幻|魔法|fantasy|精灵|龙|魔王|异界|穿越|异世界|传说|神话|史诗|魔幻/i,
+      hint: { theme: 'midnight', accent: '#a78bfa', layout: 'novel', fontFamily: 'serif' } },
+    { keywords: /温馨|日常|生活|校园|青春|治愈|轻松|恋爱|浪漫|romance|slice.of.life/i,
+      hint: { theme: 'paper', accent: '#be185d', layout: 'novel', fontFamily: 'serif' } },
+    { keywords: /末日|废土|post.apocaly|荒原|生存|horror|末世|丧尸|virus|感染|灾难/i,
+      hint: { theme: 'midnight', accent: '#f472b6', layout: 'novel', fontFamily: 'sans' } },
+    { keywords: /海洋|航海|pirate|海盗|港口|水手|island|孤岛|航行/i,
+      hint: { theme: 'mist', accent: '#0e7490', layout: 'novel', fontFamily: 'serif' } },
+    { keywords: /战争|军事|战场|士兵|阵营|对抗|革命|战争|army|war|battle|conflict/i,
+      hint: { theme: 'sepia', accent: '#991b1b', layout: 'archive', fontFamily: 'sans' } },
+    { keywords: /宇宙|太空|星际|space|星球|飞船|外星|银河|科幻/i,
+      hint: { theme: 'midnight', accent: '#60a5fa', layout: 'novel', fontFamily: 'sans' } },
+];
+
+/** 根据世界观文本推断最合适的 UI，如果匹配不到则返回 null（调用方使用默认值）。 */
+const inferAdaptiveUI = (worldSetting: string): Partial<AdaptiveUIHint> | null => {
+    const text = worldSetting.slice(0, 800).toLowerCase();
+    for (const rule of ADAPTIVE_RULES) {
+        if (rule.keywords.test(text)) return { ...rule.hint };
+    }
+    return null;
 };
 
 const modeLabel = (mode: EchoesMode) => MODE_META[mode]?.label || mode;
+
+/** 仅用于关系页的轻量人物索引：不改变存档结构，也不把 AI 猜测当成硬事实。 */
+const parseCastEntries = (cast: string, playerIdentity: string): Array<{ name: string; detail: string; isPlayer?: boolean }> => {
+    const result: Array<{ name: string; detail: string; isPlayer?: boolean }> = [];
+    if (playerIdentity.trim()) {
+        const firstLine = playerIdentity.trim().split(/[\\n。；;]/)[0].trim();
+        result.push({ name: firstLine.slice(0, 24) || '玩家', detail: playerIdentity.trim(), isPlayer: true });
+    }
+    cast.split(/[\\n]+/).map(line => line.trim()).filter(Boolean).slice(0, 24).forEach((line, index) => {
+        const match = line.match(/^([^：:—–-]{1,24})[：:—–-](.+)$/);
+        result.push({ name: (match?.[1] || line.split(/[，,。；;]/)[0] || `人物 ${index + 1}`).trim().slice(0, 24), detail: (match?.[2] || line).trim() });
+    });
+    return result;
+};
+
+/**
+ * 稳定的底部 Sheet。必须放在 EchoesApp 外部定义，避免父组件每次更新时产生新的组件类型，
+ * 从而卸载输入框、丢失焦点并让 iOS 键盘收回。
+ */
+const EchoesSheet: React.FC<{
+    open: boolean;
+    onClose: () => void;
+    title: string;
+    icon: React.ReactNode;
+    palette: { panel: string; text: string; border: string };
+    children: React.ReactNode;
+}> = ({ open, onClose, title, icon, palette, children }) => {
+    if (!open) return null;
+    return <div className="absolute inset-0 z-30 flex flex-col justify-end" onClick={onClose}>
+        <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,.42)' }} />
+        <div onClick={event => event.stopPropagation()} className="relative flex max-h-[85vh] flex-col rounded-t-[28px] shadow-2xl animate-fade-in" style={{ background: palette.panel, color: palette.text }}>
+            <div className="flex shrink-0 items-center justify-center pt-2.5"><div className="h-1 w-9 rounded-full" style={{ background: palette.border }} /></div>
+            <div className="flex shrink-0 items-center justify-between px-5 pb-3 pt-2"><h2 className="flex items-center gap-2 text-[15px] font-bold">{icon}{title}</h2><button onClick={onClose} className="rounded-full p-1.5 opacity-50 hover:bg-black/5" aria-label="关闭"><X size={17} /></button></div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(1.25rem+var(--safe-bottom,0px))] text-xs">{children}</div>
+        </div>
+    </div>;
+};
 
 const cloneState = (state: EchoesState): EchoesState => ({
     ...state,
@@ -131,6 +247,57 @@ const FoldCard: React.FC<{
             <CaretDown size={16} weight="bold" className="ml-3 shrink-0 transition-transform" style={{ transform: open ? 'rotate(180deg)' : 'none', color: accent, opacity: open ? 1 : 0.4 }} />
         </button>
         {open && <div className="border-t px-4 py-4" style={{ borderColor: 'rgba(255,255,255,.08)' }}>{children}</div>}
+    </div>
+);
+
+/**
+ * 打字机效果包装：只在 active=true 时逐字显示内容变化，结束后回调。
+ * 通过测量纯文本长度来控制显示节奏，不解析富文本结构，所以直接包一层
+ * 半透明遮罩逐步收窄即可，不需要重新实现 Markdown/HTML 渲染逻辑。
+ */
+const TypewriterReveal: React.FC<{ active: boolean; children: React.ReactNode; speed?: number }> = ({ active, children, speed = 18 }) => {
+    const [revealed, setRevealed] = useState(!active);
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!active) { setRevealed(true); return; }
+        setRevealed(false);
+        const el = ref.current;
+        if (!el) { setRevealed(true); return; }
+        // 用内容长度估算总时长，短内容快速展开，长内容也不会等太久（封顶 2.2s）。
+        const textLen = el.textContent?.length || 200;
+        const duration = Math.min(2200, Math.max(500, textLen * (1000 / speed) / 40));
+        const timer = window.setTimeout(() => setRevealed(true), duration);
+        return () => window.clearTimeout(timer);
+    }, [active, speed]);
+    return (
+        <div ref={ref} className="relative">
+            <div style={{ opacity: revealed ? 1 : 0, transition: revealed ? 'opacity .5s ease' : 'none' }}>{children}</div>
+            {!revealed && <div className="absolute inset-0 overflow-hidden" aria-hidden>
+                <div className="animate-pulse text-current opacity-40" style={{ fontSize: '1.2em' }}>···</div>
+            </div>}
+        </div>
+    );
+};
+
+/**
+ * 纯文字氛围卡：章节名 + 情绪标签 + 地点/时间。不是人物立绘，只用色块和排版营造氛围。
+ */
+const MoodCard: React.FC<{
+    chapter: string; mood?: string; location: string; time: string; accent: string; palette: { panel: string; border: string; muted: string; text: string };
+}> = ({ chapter, mood, location, time, accent, palette }) => (
+    <div className="mb-4 overflow-hidden rounded-2xl border" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${accent}12, ${palette.panel})` }}>
+        <div className="flex items-center justify-between px-4 py-3">
+            <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
+                    <span className="truncate text-[13px] font-bold" style={{ color: palette.text }}>{chapter}</span>
+                </div>
+                <div className="mt-1 flex items-center gap-2 text-[10px]" style={{ color: palette.muted }}>
+                    <span>{time}</span><span>·</span><span>{location}</span>
+                </div>
+            </div>
+            {mood && <span className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold" style={{ background: `${accent}20`, color: accent }}>{mood}</span>}
+        </div>
     </div>
 );
 
@@ -246,6 +413,7 @@ function normalizeTurns(rawTurns: unknown, initialState: EchoesState, initialDir
             blocks: blocks.length ? blocks : [{ id: `restored-${index}-fallback`, kind: 'narrative', format: 'text', content: '（此回合没有可显示的正文）' }],
             suggestions: Array.isArray(raw?.suggestions) ? raw.suggestions.map(cleanText).filter(Boolean).slice(0, 6) : [],
             chapter: cleanText(raw?.chapter) || afterState.chapter,
+            mood: cleanText(raw?.mood).slice(0, 20) || undefined,
             beforeState, afterState, beforeDirector, afterDirector,
             beforeContinuitySummary: cleanText(raw?.beforeContinuitySummary) || cursorSummary,
             afterContinuitySummary: cleanText(raw?.afterContinuitySummary) || cursorSummary,
@@ -275,6 +443,20 @@ const normalizeWritingGuide = (raw: any): EchoesWritingGuide => {
         maxWords: clampWords(source.maxWords),
         contextRounds: Number.isFinite(rounds) && rounds > 0 ? Math.min(Math.round(rounds), 40) : DEFAULT_WRITING_GUIDE.contextRounds,
         authorInstructions: cleanText(source.authorInstructions).slice(0, 2000),
+    };
+};
+
+const normalizeProtocol = (raw: any): EchoesProtocolConfig => {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    return {
+        enabled: source.enabled !== false,
+        continuityLedger: source.continuityLedger !== false,
+        playerAgency: source.playerAgency !== false,
+        characterAutonomy: source.characterAutonomy !== false,
+        sensoryWriting: source.sensoryWriting !== false,
+        meaningfulProgress: source.meaningfulProgress !== false,
+        sceneObservation: source.sceneObservation !== false,
+        customInstructions: cleanText(source.customInstructions).slice(0, 3000),
     };
 };
 
@@ -327,6 +509,7 @@ const normalizeWorld = (raw: any): EchoesWorld => {
         state,
         director,
         writingGuide: normalizeWritingGuide(source.writingGuide),
+        protocol: normalizeProtocol(source.protocol),
         continuitySummary,
         hardFacts: Array.isArray(source.hardFacts) ? source.hardFacts.map(cleanText).filter(Boolean).slice(-200) : [],
         knownFacts: Array.isArray(source.knownFacts) ? source.knownFacts.map(cleanText).filter(Boolean).slice(-200) : [],
@@ -444,9 +627,16 @@ const EchoesApp: React.FC = () => {
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [openFold, setOpenFold] = useState<string>('world'); // 创建界面当前展开的折叠块ID
     const [createStep, setCreateStep] = useState(1); // 创建界面步骤：1=世界观 2=游戏设定 3=可选细节
+    const [activeTab, setActiveTab] = useState<'story' | 'relations' | 'status'>('story'); // 游玩界面底部三个 Tab
+    const [showRawState, setShowRawState] = useState(false); // 状态页里的原始 JSON 折叠开关
     const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'] });
     const [draftWritingGuide, setDraftWritingGuide] = useState<EchoesWritingGuide>({ ...DEFAULT_WRITING_GUIDE });
+    const [draftProtocol, setDraftProtocol] = useState<EchoesProtocolConfig>({ ...DEFAULT_PROTOCOL });
     const [draftUI, setDraftUI] = useState<EchoesUIProfile>(DEFAULT_UI);
+    // 用户在创建向导第4步手动选择过主题/布局后置为 true；此时不再让 AI 的世界观自适应 UI 覆盖用户选择。
+    const [draftUICustomized, setDraftUICustomized] = useState(false);
+    // 刚生成完成的回合 id：只对这一条应用打字机效果，历史回合直接完整显示，避免每次切 Tab 都重新打字。
+    const [freshTurnId, setFreshTurnId] = useState<string | null>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     // React 状态更新有一个渲染间隔；用 ref 拦住同一帧内的重复点击，避免并发生成覆盖存档。
     const generatingRef = useRef(false);
@@ -497,6 +687,16 @@ const EchoesApp: React.FC = () => {
 
     const basePrompt = useCallback((world: EchoesWorld, action: string, opening = false) => {
         const allowed = world.allowedFormats.join('、');
+        const protocol = normalizeProtocol(world.protocol);
+        const protocolLines = protocol.enabled ? [
+            protocol.continuityLedger ? '【连续性账本】严格区分硬事实、玩家已知、导演软约束和可自由创作空间；新内容不得无故覆盖前三者。' : '',
+            protocol.playerAgency ? '【玩家能动性】绝不替玩家决定关键行动、台词、内心、选择或结果；只描写世界与其他角色的反应，并把局面停在可回应的位置。' : '',
+            protocol.characterAutonomy ? '【角色自主性】每个角色按自身目标、信息、能力、利益、恐惧和关系行动；不要为了讨好玩家而降智、送线索或强行配合。' : '',
+            protocol.sensoryWriting ? '【感官写作】优先写空间、光影、声音、气味、触感、动作和可观察的心理外显，让场景可感而不是事件摘要。' : '',
+            protocol.meaningfulProgress ? '【有效推进】每轮至少让主线、关系、信息、阻力、资源、氛围或悬念中的一项发生有因果的变化；安静场景也要有细微变化，不要机械反转。' : '',
+            protocol.sceneObservation ? '【场景观测】为本轮提供简短的 mood（2-5字）和 sceneType，必须服务于当前内容，不要用空泛标签。' : '',
+            protocol.customInstructions ? `【协议补充】${protocol.customInstructions}` : '',
+        ].filter(Boolean).join('\n') : '作者关闭了增强协议；仍须遵守硬事实、玩家能动性和基本安全输出约束。';
         return `你是 Echoes 的动态小说导演。你负责让用户可以长期阅读并游玩一个由用户自定义的世界。\n\n` +
 `【世界】\n${world.title}\n${world.worldSetting}\n\n` +
 `【玩家身份】\n${world.playerIdentity || '由玩家在行动中逐步确定'}\n\n` +
@@ -504,6 +704,7 @@ const EchoesApp: React.FC = () => {
 `【游戏档位】${modeLabel(world.mode)}\n${getModeInstruction(world.mode)}\n` +
 `【质量审核】${QUALITY_META[world.qualityMode || 'maximum'].label}：${QUALITY_META[world.qualityMode || 'maximum'].description}\n` +
 `【作者对你（写作本体）的直接指令——这不是世界内容，角色感知不到，请以创作者/编辑的身份理解并执行】\n${buildWritingGuideSection(world.writingGuide)}\n` +
+`【Echoes / 棉花糖式写作协议】\n${protocolLines}\n` +
 `【排版偏好】${world.formattingPreference}。允许格式：${allowed}\n` +
 `【当前状态】\n${JSON.stringify(world.state, null, 2)}\n` +
 `【不可随意改写的硬事实】\n${world.hardFacts.join('\n') || '尚未锁定；只能根据已经写出的内容逐步形成'}\n` +
@@ -526,6 +727,7 @@ const EchoesApp: React.FC = () => {
 `【输出】只输出合法 JSON，不要代码围栏：\n` +
 `{\n` +
 `  "chapter": "当前章节名",\n` +
+`  "mood": "本回合的情绪/氛围，用2-5个字概括，如：压抑、温柔、紧张对峙、荒诞、释然",\n` +
 `  "statePatch": { "time": "可选", "location": "可选", "chapter": "可选", "health": "可选", "sanity": "可选", "inventory": [], "resources": {}, "custom": {} },\n` +
 `  "directorPatch": { "currentGoal": "可选", "chapterGoal": "可选", "activeThreads": [], "unresolvedQuestions": [], "recentMotifs": [], "pressure": 0, "sceneType": "可选", "lastPacingNote": "可选" },\n` +
 `  "newKnownFacts": ["玩家在本轮合理知道的事实"],\n` +
@@ -600,17 +802,25 @@ const EchoesApp: React.FC = () => {
         generatingRef.current = true;
         setGenerating(true);
         const now = Date.now();
+        // 世界观自适应 UI：只有用户没在创建向导第4步手动选过主题/布局时才生效。
+        // 推断结果只从预设白名单里取值（THEME_META/ACCENT_PRESETS/LAYOUT_META），
+        // 不存在 AI 自由生成颜色导致的丑陋或违和风险。
+        const adaptiveHint = draftUICustomized ? null : inferAdaptiveUI(draft.world);
+        const finalUI: EchoesUIProfile = adaptiveHint
+            ? { ...draftUI, theme: adaptiveHint.theme!, accent: adaptiveHint.accent!, layout: adaptiveHint.layout!, fontFamily: adaptiveHint.fontFamily!, labels: { ...draftUI.labels } }
+            : { ...draftUI, labels: { ...draftUI.labels } };
         const seed: EchoesWorld = {
             id: `echoes-${now}-${Math.random().toString(36).slice(2, 8)}`,
             title: draft.title.trim(), worldSetting: draft.world.trim(), playerIdentity: draft.identity.trim(), cast: draft.cast.trim(),
             mode: draft.mode, qualityMode: draft.qualityMode, allowedFormats: [...DEFAULT_FORMATS], formattingPreference: draft.formatting,
-            ui: { ...draftUI, labels: { ...draftUI.labels } },
+            ui: finalUI,
             initialState: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
             initialDirector: normalizeDirector(DEFAULT_DIRECTOR),
             initialContinuitySummary: '',
             state: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
             director: normalizeDirector(DEFAULT_DIRECTOR),
             writingGuide: normalizeWritingGuide(draftWritingGuide),
+            protocol: normalizeProtocol(draftProtocol),
             continuitySummary: '',
             hardFacts: [], knownFacts: [], turns: [], createdAt: now, updatedAt: now, lastPlayedAt: now, version: 1,
         };
@@ -625,7 +835,8 @@ const EchoesApp: React.FC = () => {
             const afterDirector = applyDirectorPatch(beforeDirector, payload);
             const turn: EchoesTurn = {
                 id: `turn-${now}`, action: '（开场）', blocks: normalizeBlocks(payload, seed.allowedFormats, raw), suggestions: normalizeSuggestions(payload),
-                chapter: cleanText(payload?.chapter) || after.chapter, beforeState: before, afterState: after,
+                chapter: cleanText(payload?.chapter) || after.chapter, mood: cleanText(payload?.mood).slice(0, 20) || undefined,
+                beforeState: before, afterState: after,
                 beforeDirector, afterDirector, beforeContinuitySummary: seed.continuitySummary,
                 afterContinuitySummary: cleanText(payload?.continuitySummary || payload?.recap).slice(0, 4000),
                 beforeKnownFacts: [...seed.knownFacts], beforeHardFacts: [...seed.hardFacts], createdAt: now,
@@ -636,9 +847,11 @@ const EchoesApp: React.FC = () => {
                 updatedAt: Date.now(), lastPlayedAt: Date.now(),
             };
             await DB.saveEchoesWorld(world);
-            setWorlds(prev => [world, ...prev]); setActiveWorld(world); setView('play');
+            setWorlds(prev => [world, ...prev]); setActiveWorld(world); setView('play'); setFreshTurnId(turn.id);
             setDraft({ title: '', world: '', identity: '', cast: '', mode: 'interactive', qualityMode: 'maximum', formatting: 'adaptive' });
             setDraftWritingGuide({ ...DEFAULT_WRITING_GUIDE });
+            setDraftProtocol({ ...DEFAULT_PROTOCOL });
+            setDraftUICustomized(false);
             addToast('Echoes 世界已创建', 'success');
         } catch (error: any) { addToast(`世界创建失败：${error?.message || '未知错误'}`, 'error'); }
         finally { generatingRef.current = false; setGenerating(false); }
@@ -654,7 +867,7 @@ const EchoesApp: React.FC = () => {
             // 浅比较关键字段：绝大多数 UI/设置修改只会改少量字段，turns 和 blocks 引用变了才更新
             const same = prev.turns === updated.turns && prev.state === updated.state
                 && prev.hardFacts === updated.hardFacts && prev.knownFacts === updated.knownFacts
-                && prev.director === updated.director && prev.ui === updated.ui && prev.writingGuide === updated.writingGuide
+                && prev.director === updated.director && prev.ui === updated.ui && prev.writingGuide === updated.writingGuide && prev.protocol === updated.protocol
                 && prev.mode === updated.mode && prev.qualityMode === updated.qualityMode
                 && prev.allowedFormats === updated.allowedFormats && prev.continuitySummary === updated.continuitySummary;
             return same ? prev : updated;
@@ -680,7 +893,8 @@ const EchoesApp: React.FC = () => {
             const turn: EchoesTurn = {
                 id: `turn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, action,
                 blocks: normalizeBlocks(payload, baseWorld.allowedFormats, raw), suggestions: normalizeSuggestions(payload),
-                chapter: cleanText(payload?.chapter) || after.chapter, beforeState: before, afterState: after,
+                chapter: cleanText(payload?.chapter) || after.chapter, mood: cleanText(payload?.mood).slice(0, 20) || undefined,
+                beforeState: before, afterState: after,
                 beforeDirector, afterDirector, beforeContinuitySummary: baseWorld.continuitySummary,
                 afterContinuitySummary: cleanText(payload?.continuitySummary || payload?.recap || baseWorld.continuitySummary).slice(0, 4000),
                 beforeKnownFacts: [...baseWorld.knownFacts], beforeHardFacts: [...baseWorld.hardFacts], createdAt: Date.now(),
@@ -689,6 +903,7 @@ const EchoesApp: React.FC = () => {
             const locked = Array.isArray(payload?.hardFactsToLock) ? payload.hardFactsToLock.map(cleanText).filter(Boolean) : [];
             const nextSummary = cleanText(payload?.continuitySummary || payload?.recap || baseWorld.continuitySummary).slice(0, 4000);
             await persistWorld({ ...baseWorld, state: after, director: afterDirector, continuitySummary: nextSummary, turns: [...baseWorld.turns, turn], hardFacts: Array.from(new Set([...baseWorld.hardFacts, ...locked])).slice(-200), knownFacts: Array.from(new Set([...baseWorld.knownFacts, ...known])).slice(-200) });
+            setFreshTurnId(turn.id);
         } catch (error: any) { addToast(`这一轮生成失败：${error?.message || '请稍后重试'}`, 'error'); }
         finally { generatingRef.current = false; setGenerating(false); }
     };
@@ -767,6 +982,13 @@ const EchoesApp: React.FC = () => {
         await persistWorld({ ...activeWorld, writingGuide: newGuide });
     };
 
+    const updateProtocol = async (patch: Partial<EchoesProtocolConfig>) => {
+        if (!activeWorld || generatingRef.current) return;
+        const next = normalizeProtocol({ ...activeWorld.protocol, ...patch });
+        if (JSON.stringify(next) === JSON.stringify(activeWorld.protocol)) return;
+        await persistWorld({ ...activeWorld, protocol: next });
+    };
+
     const toggleFormat = async (format: EchoesFormat) => {
         if (!activeWorld || generatingRef.current) return;
         const current = activeWorld.allowedFormats?.length ? activeWorld.allowedFormats : DEFAULT_FORMATS;
@@ -781,26 +1003,6 @@ const EchoesApp: React.FC = () => {
     const ui = activeWorld?.ui || DEFAULT_UI;
     const enabledFormats = activeWorld?.allowedFormats?.length ? activeWorld.allowedFormats : DEFAULT_FORMATS;
     const textStyle: React.CSSProperties = { fontFamily: ui.fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : ui.fontFamily === 'sans' ? 'ui-sans-serif, system-ui, sans-serif' : 'Georgia, "Noto Serif SC", serif', fontSize: `${ui.fontScale}em`, lineHeight: ui.lineHeight };
-
-    const renderStatusPanel = () => {
-        if (!activeWorld || (!ui.showStatus && !ui.showFacts)) return null;
-        return <div className="mb-5 grid gap-3 sm:grid-cols-2">
-            {ui.showStatus && <section className="rounded-2xl border p-3 text-xs" style={{ background: `${palette.panel}b8`, borderColor: palette.border }}>
-                <div className="mb-2 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><Compass size={14} />当前状态</div>
-                <div className="grid grid-cols-2 gap-2" style={{ color: palette.muted }}>
-                    <div><span className="opacity-60">{ui.labels.time}</span><div className="font-semibold" style={{ color: palette.text }}>{activeWorld.state.time}</div></div>
-                    <div><span className="opacity-60">{ui.labels.location}</span><div className="font-semibold" style={{ color: palette.text }}>{activeWorld.state.location}</div></div>
-                    {typeof activeWorld.state.health === 'number' && <div><span className="opacity-60">生命 / 状态</span><div className="font-semibold" style={{ color: palette.text }}>{activeWorld.state.health}</div></div>}
-                    {typeof activeWorld.state.sanity === 'number' && <div><span className="opacity-60">精神 / 稳定</span><div className="font-semibold" style={{ color: palette.text }}>{activeWorld.state.sanity}</div></div>}
-                </div>
-                {!!activeWorld.state.inventory?.length && <div className="mt-2 border-t pt-2" style={{ borderColor: palette.border }}><span className="opacity-60">{ui.labels.inventory}</span><div className="mt-1 flex flex-wrap gap-1">{activeWorld.state.inventory.slice(-8).map((item, i) => <span key={`${item}-${i}`} className="rounded-full px-2 py-1" style={{ background: `${ui.accent}18`, color: ui.accent }}>{item}</span>)}</div></div>}
-            </section>}
-            {ui.showFacts && <section className="rounded-2xl border p-3 text-xs" style={{ background: `${palette.panel}b8`, borderColor: palette.border }}>
-                <div className="mb-2 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><FileText size={14} />{ui.labels.clues}</div>
-                {activeWorld.knownFacts.length ? <ul className="space-y-1 leading-relaxed" style={{ color: palette.muted }}>{activeWorld.knownFacts.slice(-8).map((fact, i) => <li key={`${fact}-${i}`}>· {fact}</li>)}</ul> : <p className="opacity-50">暂时没有可确认的记录。</p>}
-            </section>}
-        </div>;
-    };
 
     const renderExperienceSettings = () => activeWorld && <>
         <div>
@@ -917,15 +1119,61 @@ const EchoesApp: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        <div className="mt-4 overflow-hidden rounded-3xl border border-white/[.08]" style={{ background: 'linear-gradient(160deg, rgba(52,211,153,.07), rgba(255,255,255,.02))' }}>
+                            <div className="flex items-center gap-2 border-b border-white/[.06] px-4 py-3"><GitBranch size={15} className="text-emerald-300" /><span className="text-[12.5px] font-bold text-white/85">写作协议</span><span className="ml-auto text-[9px] text-white/30">连续性 · 能动性 · 自主性</span></div>
+                            <div className="px-4 py-4">
+                                <p className="mb-3 text-[10.5px] leading-relaxed text-white/40">底层运行规则，不是剧情内容。默认全部开启，可按需关闭；进入世界后仍可随时调整。</p>
+                                <div className="space-y-1.5">
+                                    {([
+                                        ['continuityLedger', '连续性账本', '硬事实 / 已知信息 / 创作空间分层，不互相覆盖'],
+                                        ['playerAgency', '玩家能动性', '不替你决定关键行动、台词或结果'],
+                                        ['characterAutonomy', '角色自主性', '角色按自身目标行动，不为剧情降智'],
+                                        ['sensoryWriting', '感官写作', '强化场景、动作与心理外显，减少事件摘要感'],
+                                        ['meaningfulProgress', '有效推进', '每轮至少一项有意义的变化'],
+                                        ['sceneObservation', '场景观测', '生成章节情绪标签，用于氛围卡展示'],
+                                    ] as const).map(([key, label, desc]) => <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-white/[.06] bg-white/[.03] px-3 py-2.5"><span className="min-w-0"><span className="block text-[11.5px] font-semibold text-white/80">{label}</span><span className="mt-0.5 block text-[9.5px] leading-relaxed text-white/35">{desc}</span></span><input type="checkbox" checked={draftProtocol[key]} onChange={e => setDraftProtocol({ ...draftProtocol, [key]: e.target.checked })} className="shrink-0" /></label>)}
+                                </div>
+                                <textarea value={draftProtocol.customInstructions} onChange={e => setDraftProtocol({ ...draftProtocol, customInstructions: e.target.value })} rows={2} placeholder="协议补充指令（可选）" className="mt-2.5 w-full resize-y rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] leading-relaxed outline-none placeholder:text-white/20 focus:border-emerald-400/50" />
+                            </div>
+                        </div>
                     </div>}
 
                     {createStep === 4 && <div className="animate-fade-in">
-                        <StepField label="布局"><PillPicker cols={2} value={draftUI.layout} onChange={layout => setDraftUI({ ...draftUI, layout })} options={(Object.keys(LAYOUT_META) as EchoesLayout[]).map(l => ({ key: l, label: LAYOUT_META[l] }))} /></StepField>
-                        <StepField label="主题">
-                            <div className="grid grid-cols-5 gap-2.5">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => setDraftUI({ ...draftUI, theme })} className="flex flex-col items-center gap-1.5" aria-label={theme}><span className="block h-11 w-11 rounded-2xl border-2 transition" style={{ background: THEME_META[theme].bg, borderColor: draftUI.theme === theme ? current.accent : 'rgba(255,255,255,.12)' }} />{draftUI.theme === theme && <Check size={11} weight="bold" style={{ color: current.accent }} />}</button>)}</div>
-                        </StepField>
-                        <div className="mt-2 rounded-2xl border border-white/[.08] bg-white/[.03] p-4">
-                            <p className="text-[10.5px] leading-relaxed text-white/40">进入世界后可以在设置里进一步调整字体、强调色、模块显隐，还能粘贴<span className="text-white/60">自定义 CSS</span> 完全接管样式，或导入/导出你的 UI 配置。</p>
+                        {(() => {
+                            const preview = inferAdaptiveUI(draft.world);
+                            return (
+                                <div className="mb-5 overflow-hidden rounded-2xl border" style={{ borderColor: !draftUICustomized ? current.accent : 'rgba(255,255,255,.1)', background: !draftUICustomized ? `${current.accent}14` : 'rgba(255,255,255,.03)' }}>
+                                    <button onClick={() => setDraftUICustomized(false)} className="flex w-full items-start gap-3 p-3.5 text-left">
+                                        <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: !draftUICustomized ? current.accent : 'rgba(255,255,255,.25)' }}>{!draftUICustomized && <span className="h-2.5 w-2.5 rounded-full" style={{ background: current.accent }} />}</div>
+                                        <div className="min-w-0 flex-1">
+                                            <span className="block text-[13px] font-bold text-white/85">世界观自适应（推荐）</span>
+                                            <span className="mt-1 block text-[10.5px] leading-relaxed text-white/40">
+                                                {preview ? <>已根据你的世界观推断出合适的主题与布局，进入世界后仍可随时手动调整。</> : <>暂未识别到明显风格关键词，将使用默认的纸感小说主题；进入世界后可随时调整。</>}
+                                            </span>
+                                            {preview && !draftUICustomized && <div className="mt-2.5 flex items-center gap-2"><span className="h-6 w-6 rounded-lg border border-white/10" style={{ background: THEME_META[preview.theme!].bg }} /><span className="text-[10px] text-white/50">{THEME_META[preview.theme!].label} · {LAYOUT_META[preview.layout!]}</span></div>}
+                                        </div>
+                                    </button>
+                                </div>
+                            );
+                        })()}
+                        <div className="mb-3 overflow-hidden rounded-2xl border" style={{ borderColor: draftUICustomized ? current.accent : 'rgba(255,255,255,.1)', background: draftUICustomized ? `${current.accent}14` : 'rgba(255,255,255,.03)' }}>
+                            <button onClick={() => setDraftUICustomized(true)} className="flex w-full items-start gap-3 p-3.5 text-left">
+                                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: draftUICustomized ? current.accent : 'rgba(255,255,255,.25)' }}>{draftUICustomized && <span className="h-2.5 w-2.5 rounded-full" style={{ background: current.accent }} />}</div>
+                                <span className="text-[13px] font-bold text-white/85">我自己选</span>
+                            </button>
+                            {draftUICustomized && <div className="border-t border-white/[.06] px-3.5 pb-4 pt-3">
+                                <StepField label="布局"><PillPicker cols={2} value={draftUI.layout} onChange={layout => setDraftUI({ ...draftUI, layout })} options={(Object.keys(LAYOUT_META) as EchoesLayout[]).map(l => ({ key: l, label: LAYOUT_META[l] }))} /></StepField>
+                                <StepField label="主题">
+                                    <div className="grid grid-cols-5 gap-2.5">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => setDraftUI({ ...draftUI, theme, accent: ACCENT_PRESETS[theme][0] })} className="flex flex-col items-center gap-1.5" aria-label={theme}><span className="block h-11 w-11 rounded-2xl border-2 transition" style={{ background: THEME_META[theme].bg, borderColor: draftUI.theme === theme ? current.accent : 'rgba(255,255,255,.12)' }} />{draftUI.theme === theme && <Check size={11} weight="bold" style={{ color: current.accent }} />}</button>)}</div>
+                                </StepField>
+                                <StepField label="强调色">
+                                    <div className="flex flex-wrap gap-2">{ACCENT_PRESETS[draftUI.theme].map(color => <button key={color} onClick={() => setDraftUI({ ...draftUI, accent: color })} className="h-8 w-8 rounded-full border-2 transition" style={{ background: color, borderColor: draftUI.accent === color ? '#fff' : 'transparent', boxShadow: draftUI.accent === color ? `0 0 0 2px ${color}` : 'none' }} aria-label={color} />)}</div>
+                                </StepField>
+                            </div>}
+                        </div>
+                        <div className="rounded-2xl border border-white/[.08] bg-white/[.03] p-4">
+                            <p className="text-[10.5px] leading-relaxed text-white/40">进入世界后可以在设置里进一步调整字体、模块显隐、打字机效果，还能粘贴<span className="text-white/60">自定义 CSS</span> 完全接管样式，或导入/导出你的 UI 配置。</p>
                         </div>
                     </div>}
                 </div>
@@ -942,26 +1190,149 @@ const EchoesApp: React.FC = () => {
         </div>;
     };
 
-    const renderSettings = () => activeWorld && <div className="absolute inset-0 z-30 overflow-y-auto" style={{ background: `${palette.bg}f2`, color: palette.text, paddingTop: 'var(--safe-top)' }}><div className="mx-auto max-w-lg rounded-3xl border m-4 p-4 shadow-2xl" style={{ background: palette.panel, borderColor: palette.border }}><div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-bold"><GearSix size={18} />自定义 Echoes</h2><button onClick={() => setShowSettings(false)} className="rounded-lg px-2 py-1 text-xs opacity-60 hover:bg-black/5">完成</button></div><div className="space-y-4 text-xs">{renderExperienceSettings()}<div><span className="mb-2 block font-bold opacity-70">布局</span><div className="grid grid-cols-2 gap-2">{(Object.keys(LAYOUT_META) as EchoesLayout[]).map(layout => <button key={layout} onClick={() => void updateUI({ layout })} className={`rounded-xl border px-3 py-2 text-left ${ui.layout === layout ? 'ring-2' : ''}`} style={{ borderColor: ui.layout === layout ? ui.accent : palette.border }}>{LAYOUT_META[layout]}</button>)}</div></div><div><span className="mb-2 block font-bold opacity-70">主题</span><div className="grid grid-cols-5 gap-2">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => void updateUI({ theme })} className={`h-8 rounded-lg border ${ui.theme === theme ? 'ring-2' : ''}`} style={{ background: THEME_META[theme].bg, borderColor: ui.theme === theme ? ui.accent : palette.border }} aria-label={theme} />)}</div></div><label className="block"><span className="mb-1 block font-bold opacity-70">强调色</span><input type="color" value={ui.accent} onChange={e => void updateUI({ accent: e.target.value })} className="h-9 w-full rounded-lg border-0 bg-transparent" /></label><div className="grid grid-cols-2 gap-2"><label className="block"><span className="mb-1 block font-bold opacity-70">字体</span><select value={ui.fontFamily} onChange={e => void updateUI({ fontFamily: e.target.value as EchoesUIProfile['fontFamily'] })} className="w-full rounded-lg border bg-transparent p-2" style={{ borderColor: palette.border }}><option value="serif">衬线小说</option><option value="sans">无衬线</option><option value="mono">等宽终端</option></select></label><label className="block"><span className="mb-1 block font-bold opacity-70">文字大小</span><input type="range" min=".85" max="1.35" step=".05" value={ui.fontScale} onChange={e => void updateUI({ fontScale: Number(e.target.value) })} className="mt-3 w-full" /></label></div><div className="grid grid-cols-2 gap-2"><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>建议行动 <input type="checkbox" checked={ui.showSuggestions} onChange={e => void updateUI({ showSuggestions: e.target.checked })} /></label><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>状态面板 <input type="checkbox" checked={ui.showStatus} onChange={e => void updateUI({ showStatus: e.target.checked })} /></label><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>已知事实 <input type="checkbox" checked={ui.showFacts} onChange={e => void updateUI({ showFacts: e.target.checked })} /></label><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>源码切换 <input type="checkbox" checked={ui.showSourceToggle} onChange={e => void updateUI({ showSourceToggle: e.target.checked })} /></label></div><div><span className="mb-2 block font-bold opacity-70">世界内词汇</span><div className="grid grid-cols-2 gap-2">{(Object.keys(DEFAULT_LABELS) as Array<keyof typeof DEFAULT_LABELS>).map(key => <label key={key} className="block"><span className="mb-1 block text-[10px] opacity-55">{DEFAULT_LABELS[key]}</span><input value={ui.labels[key]} onChange={e => void updateUI({ labels: { [key]: e.target.value } as any })} className="w-full rounded-lg border bg-transparent px-2 py-1.5" style={{ borderColor: palette.border }} /></label>)}</div></div><div className="border-t pt-4" style={{ borderColor: palette.border }}><span className="mb-2 block font-bold opacity-70">自定义 CSS（高级）</span><p className="mb-2 text-[10px] leading-relaxed opacity-50">注入到 .echoes-root 作用域，可以覆盖任意样式。留空则使用内置主题。</p><textarea value={ui.customCss || ''} onChange={e => void updateUI({ customCss: e.target.value })} rows={8} placeholder=".echoes-root { /* 你的 CSS */ }" className="w-full resize-y rounded-lg border bg-transparent px-2 py-2 font-mono text-[10px] leading-relaxed outline-none" style={{ borderColor: palette.border }} /><div className="mt-2 flex gap-2"><button onClick={() => { try { const blob = new Blob([JSON.stringify(ui, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `echoes-ui-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); addToast('UI 配置已导出', 'success'); } catch { addToast('导出失败', 'error'); } }} className="flex-1 rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导出 UI 配置</button><button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.onchange = async (e: any) => { try { const file = e.target?.files?.[0]; if (!file) return; const text = await file.text(); const imported = JSON.parse(text); await updateUI(imported); addToast('UI 配置已导入', 'success'); } catch { addToast('导入失败，请检查文件格式', 'error'); } }; input.click(); }} className="flex-1 rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导入 UI 配置</button></div></div></div></div><div className="h-[calc(var(--safe-bottom,0px)+1rem)]" /></div>;
+    const renderSettings = () => activeWorld && <EchoesSheet open={showSettings} onClose={() => setShowSettings(false)} title="自定义 Echoes" icon={<GearSix size={17} />}>
+        <div className="space-y-4">{renderExperienceSettings()}
+            <div><span className="mb-2 block font-bold opacity-70">布局</span><div className="grid grid-cols-2 gap-2">{(Object.keys(LAYOUT_META) as EchoesLayout[]).map(layout => <button key={layout} onClick={() => void updateUI({ layout })} className={`rounded-xl border px-3 py-2 text-left ${ui.layout === layout ? 'ring-2' : ''}`} style={{ borderColor: ui.layout === layout ? ui.accent : palette.border }}>{LAYOUT_META[layout]}</button>)}</div></div>
+            <div><span className="mb-2 block font-bold opacity-70">主题</span><div className="grid grid-cols-5 gap-2">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => void updateUI({ theme, accent: ACCENT_PRESETS[theme][0] })} className={`h-8 rounded-lg border ${ui.theme === theme ? 'ring-2' : ''}`} style={{ background: THEME_META[theme].bg, borderColor: ui.theme === theme ? ui.accent : palette.border }} aria-label={theme} />)}</div></div>
+            <div><span className="mb-2 block font-bold opacity-70">强调色</span><div className="flex flex-wrap gap-2">{ACCENT_PRESETS[ui.theme].map(color => <button key={color} onClick={() => void updateUI({ accent: color })} className="h-8 w-8 rounded-full border-2" style={{ background: color, borderColor: ui.accent === color ? palette.text : 'transparent', boxShadow: ui.accent === color ? `0 0 0 2px ${color}` : 'none' }} aria-label={color} />)}<input type="color" value={ui.accent} onChange={e => void updateUI({ accent: e.target.value })} className="h-8 w-8 rounded-full border-0 bg-transparent" title="自定义颜色" /></div></div>
+            <div className="grid grid-cols-2 gap-2"><label className="block"><span className="mb-1 block font-bold opacity-70">字体</span><select value={ui.fontFamily} onChange={e => void updateUI({ fontFamily: e.target.value as EchoesUIProfile['fontFamily'] })} className="w-full rounded-lg border bg-transparent p-2" style={{ borderColor: palette.border }}><option value="serif">衬线小说</option><option value="sans">无衬线</option><option value="mono">等宽终端</option></select></label><label className="block"><span className="mb-1 block font-bold opacity-70">文字大小</span><input type="range" min=".85" max="1.35" step=".05" value={ui.fontScale} onChange={e => void updateUI({ fontScale: Number(e.target.value) })} className="mt-3 w-full" /></label></div>
+            <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>建议行动 <input type="checkbox" checked={ui.showSuggestions} onChange={e => void updateUI({ showSuggestions: e.target.checked })} /></label>
+                <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>状态面板 <input type="checkbox" checked={ui.showStatus} onChange={e => void updateUI({ showStatus: e.target.checked })} /></label>
+                <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>已知事实 <input type="checkbox" checked={ui.showFacts} onChange={e => void updateUI({ showFacts: e.target.checked })} /></label>
+                <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>源码切换 <input type="checkbox" checked={ui.showSourceToggle} onChange={e => void updateUI({ showSourceToggle: e.target.checked })} /></label>
+                <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>打字机效果 <input type="checkbox" checked={ui.typewriterEffect !== false} onChange={e => void updateUI({ typewriterEffect: e.target.checked })} /></label>
+                <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>氛围卡 <input type="checkbox" checked={ui.showMoodCard !== false} onChange={e => void updateUI({ showMoodCard: e.target.checked })} /></label>
+            </div>
+            <div><span className="mb-2 block font-bold opacity-70">世界内词汇</span><div className="grid grid-cols-2 gap-2">{(Object.keys(DEFAULT_LABELS) as Array<keyof typeof DEFAULT_LABELS>).map(key => <label key={key} className="block"><span className="mb-1 block text-[10px] opacity-55">{DEFAULT_LABELS[key]}</span><input value={ui.labels[key]} onChange={e => void updateUI({ labels: { [key]: e.target.value } as any })} className="w-full rounded-lg border bg-transparent px-2 py-1.5" style={{ borderColor: palette.border }} /></label>)}</div></div>
+            <div className="border-t pt-4" style={{ borderColor: palette.border }}>
+                <span className="mb-2 block font-bold opacity-70">自定义 CSS（高级）</span>
+                <p className="mb-2 text-[10px] leading-relaxed opacity-50">注入到 .echoes-root 作用域，可以覆盖任意样式。留空则使用内置主题。</p>
+                <textarea value={ui.customCss || ''} onChange={e => void updateUI({ customCss: e.target.value })} rows={8} placeholder=".echoes-root { /* 你的 CSS */ }" className="w-full resize-y rounded-lg border bg-transparent px-2 py-2 font-mono text-[10px] leading-relaxed outline-none" style={{ borderColor: palette.border }} />
+                <div className="mt-2 flex gap-2">
+                    <button onClick={() => { try { const blob = new Blob([JSON.stringify(ui, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `echoes-ui-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); addToast('UI 配置已导出', 'success'); } catch { addToast('导出失败', 'error'); } }} className="flex-1 rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导出 UI 配置</button>
+                    <button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.onchange = async (e: any) => { try { const file = e.target?.files?.[0]; if (!file) return; const text = await file.text(); const imported = JSON.parse(text); await updateUI(imported); addToast('UI 配置已导入', 'success'); } catch { addToast('导入失败，请检查文件格式', 'error'); } }; input.click(); }} className="flex-1 rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导入 UI 配置</button>
+                </div>
+            </div>
+        </div>
+    </EchoesSheet>;
 
-    const renderInspector = () => activeWorld && <div className="absolute inset-0 z-20 overflow-y-auto" style={{ background: `${palette.bg}ee`, color: palette.text, paddingTop: 'var(--safe-top)' }}><div className="mx-auto max-w-lg rounded-3xl border m-4 p-4" style={{ background: palette.panel, borderColor: palette.border }}><div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-bold"><Eye size={18} />世界检查</h2><button onClick={() => setShowInspector(false)} className="rounded-lg px-2 py-1 text-xs opacity-60">关闭</button></div><div className="space-y-4 text-xs"><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>当前状态</h3><pre className="overflow-auto rounded-xl bg-black/5 p-3 text-[11px] leading-relaxed">{JSON.stringify(activeWorld.state, null, 2)}</pre></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>导演账本</h3><div className="space-y-1" style={{ color: palette.muted }}><p><span className="font-semibold" style={{ color: palette.text }}>当前目标：</span>{activeWorld.director.currentGoal || '—'}</p>{activeWorld.director.activeThreads.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>活跃线索：</span>{activeWorld.director.activeThreads.join('；')}</p>}{activeWorld.director.unresolvedQuestions.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>未解问题：</span>{activeWorld.director.unresolvedQuestions.join('；')}</p>}<p><span className="font-semibold" style={{ color: palette.text }}>剧情压力：</span>{activeWorld.director.pressure} / 100</p></div></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>已知事实</h3><ul className="space-y-1">{activeWorld.knownFacts.length ? activeWorld.knownFacts.map((fact, i) => <li key={i}>· {fact}</li>) : <li className="opacity-50">尚未记录</li>}</ul></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>已锁定事实（幕后）</h3><ul className="space-y-1 opacity-75">{activeWorld.hardFacts.length ? activeWorld.hardFacts.map((fact, i) => <li key={i}>· {fact}</li>) : <li className="opacity-50">尚未锁定</li>}</ul></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>运行信息</h3><p>档位：{modeLabel(activeWorld.mode)}　·　回合：{activeWorld.turns.length}</p><p className="mt-1">质量：{QUALITY_META[activeWorld.qualityMode || 'maximum'].label}　·　排版：{activeWorld.formattingPreference}</p>{activeWorld.continuitySummary && <div className="mt-2"><span className="font-semibold" style={{ color: palette.text }}>连贯摘要：</span><p className="mt-1 opacity-75 leading-relaxed">{activeWorld.continuitySummary.slice(0, 300)}{activeWorld.continuitySummary.length > 300 ? '…' : ''}</p></div>}</section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>写作指导（作者层）</h3><pre className="overflow-auto rounded-xl bg-black/5 p-3 text-[11px] leading-relaxed whitespace-pre-wrap">{buildWritingGuideSection(activeWorld.writingGuide)}</pre></section></div></div><div className="h-[calc(var(--safe-bottom,0px)+1rem)]" /></div>;
+    const renderInspector = () => activeWorld && <EchoesSheet open={showInspector} onClose={() => setShowInspector(false)} title="世界检查" icon={<Eye size={17} />}>
+        <div className="space-y-4">
+            <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>当前状态</h3><pre className="overflow-auto rounded-xl bg-black/5 p-3 text-[11px] leading-relaxed">{JSON.stringify(activeWorld.state, null, 2)}</pre></section>
+            <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>导演账本</h3><div className="space-y-1" style={{ color: palette.muted }}><p><span className="font-semibold" style={{ color: palette.text }}>当前目标：</span>{activeWorld.director.currentGoal || '—'}</p>{activeWorld.director.activeThreads.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>活跃线索：</span>{activeWorld.director.activeThreads.join('；')}</p>}{activeWorld.director.unresolvedQuestions.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>未解问题：</span>{activeWorld.director.unresolvedQuestions.join('；')}</p>}<p><span className="font-semibold" style={{ color: palette.text }}>剧情压力：</span>{activeWorld.director.pressure} / 100</p></div></section>
+            <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>已知事实</h3><ul className="space-y-1">{activeWorld.knownFacts.length ? activeWorld.knownFacts.map((fact, i) => <li key={i}>· {fact}</li>) : <li className="opacity-50">尚未记录</li>}</ul></section>
+            <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>已锁定事实（幕后）</h3><ul className="space-y-1 opacity-75">{activeWorld.hardFacts.length ? activeWorld.hardFacts.map((fact, i) => <li key={i}>· {fact}</li>) : <li className="opacity-50">尚未锁定</li>}</ul></section>
+            <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>运行信息</h3><p>档位：{modeLabel(activeWorld.mode)}　·　回合：{activeWorld.turns.length}</p><p className="mt-1">质量：{QUALITY_META[activeWorld.qualityMode || 'maximum'].label}　·　排版：{activeWorld.formattingPreference}</p>{activeWorld.continuitySummary && <div className="mt-2"><span className="font-semibold" style={{ color: palette.text }}>连贯摘要：</span><p className="mt-1 opacity-75 leading-relaxed">{activeWorld.continuitySummary.slice(0, 300)}{activeWorld.continuitySummary.length > 300 ? '…' : ''}</p></div>}</section>
+            <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>写作指导（作者层）</h3><pre className="overflow-auto rounded-xl bg-black/5 p-3 text-[11px] leading-relaxed whitespace-pre-wrap">{buildWritingGuideSection(activeWorld.writingGuide)}</pre></section>
+            <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>写作协议</h3>{activeWorld.protocol.enabled ? <div className="flex flex-wrap gap-1.5">{([['continuityLedger', '连续性账本'], ['playerAgency', '玩家能动性'], ['characterAutonomy', '角色自主性'], ['sensoryWriting', '感官写作'], ['meaningfulProgress', '有效推进'], ['sceneObservation', '场景观测']] as const).filter(([key]) => activeWorld.protocol[key]).map(([key, label]) => <span key={key} className="rounded-full px-2 py-1 text-[10px]" style={{ background: `${ui.accent}18`, color: ui.accent }}>{label}</span>)}</div> : <p className="opacity-50">协议总开关已关闭，仅保留基础安全约束。</p>}</section>
+        </div>
+    </EchoesSheet>;
+
+    /** 写作指导快速编辑 Sheet：游玩中随时可打开，改完立即生效于下一轮。 */
+    const renderWritingGuideSheet = () => activeWorld && <EchoesSheet open={showWritingGuideSheet} onClose={() => setShowWritingGuideSheet(false)} title="写作指导" icon={<PencilSimple size={17} />}>
+        <p className="mb-3 text-[10.5px] leading-relaxed opacity-50">这不是世界内容——是你直接对 AI 写作本体下的底层指令，角色感知不到。改动只影响下一轮开始生效。</p>
+        <div className="space-y-2.5">
+            <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">写作方式</span><input defaultValue={activeWorld.writingGuide.style} onBlur={e => void updateWritingGuide({ style: e.target.value })} placeholder="例如：写实细腻、意识流……" className="w-full rounded-xl border bg-transparent px-3 py-2 text-[12px] outline-none" style={{ borderColor: palette.border }} /></label>
+            <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">语气/氛围</span><input defaultValue={activeWorld.writingGuide.tone} onBlur={e => void updateWritingGuide({ tone: e.target.value })} placeholder="例如：压抑悬疑、轻松温馨……" className="w-full rounded-xl border bg-transparent px-3 py-2 text-[12px] outline-none" style={{ borderColor: palette.border }} /></label>
+            <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">视角/人称</span><input defaultValue={activeWorld.writingGuide.perspective} onBlur={e => void updateWritingGuide({ perspective: e.target.value })} placeholder="例如：第二人称……" className="w-full rounded-xl border bg-transparent px-3 py-2 text-[12px] outline-none" style={{ borderColor: palette.border }} /></label>
+            <div className="grid grid-cols-3 gap-2">
+                <input type="number" min={0} defaultValue={activeWorld.writingGuide.minWords || ''} onBlur={e => void updateWritingGuide({ minWords: Number(e.target.value) || 0 })} placeholder="字数下限" className="w-full rounded-xl border bg-transparent px-2 py-2 text-[11px] outline-none" style={{ borderColor: palette.border }} />
+                <input type="number" min={0} defaultValue={activeWorld.writingGuide.maxWords || ''} onBlur={e => void updateWritingGuide({ maxWords: Number(e.target.value) || 0 })} placeholder="字数上限" className="w-full rounded-xl border bg-transparent px-2 py-2 text-[11px] outline-none" style={{ borderColor: palette.border }} />
+                <input type="number" min={1} max={40} defaultValue={activeWorld.writingGuide.contextRounds} onBlur={e => void updateWritingGuide({ contextRounds: Number(e.target.value) || DEFAULT_WRITING_GUIDE.contextRounds })} placeholder="参考轮数" className="w-full rounded-xl border bg-transparent px-2 py-2 text-[11px] outline-none" style={{ borderColor: palette.border }} />
+            </div>
+            <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">自由指令（直接对 AI 说）</span><textarea defaultValue={activeWorld.writingGuide.authorInstructions} onBlur={e => void updateWritingGuide({ authorInstructions: e.target.value })} rows={4} placeholder="例如：不要倒叙开场、节奏放慢……" className="w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-[12px] leading-relaxed outline-none" style={{ borderColor: palette.border }} /></label>
+        </div>
+        <div className="mt-5 border-t pt-4" style={{ borderColor: palette.border }}>
+            <div className="mb-1 flex items-center justify-between"><span className="text-[11px] font-bold opacity-75">写作协议</span><label className="flex items-center gap-1.5 text-[10px] opacity-60"><input type="checkbox" checked={activeWorld.protocol.enabled} onChange={e => void updateProtocol({ enabled: e.target.checked })} />总开关</label></div>
+            <p className="mb-2.5 text-[10px] leading-relaxed opacity-45">连续性、能动性和角色自主性等底层规则；关闭总开关时只保留基础安全约束。</p>
+            <div className="space-y-1.5" style={{ opacity: activeWorld.protocol.enabled ? 1 : .4 }}>
+                {([
+                    ['continuityLedger', '连续性账本'], ['playerAgency', '玩家能动性'], ['characterAutonomy', '角色自主性'],
+                    ['sensoryWriting', '感官写作'], ['meaningfulProgress', '有效推进'], ['sceneObservation', '场景观测'],
+                ] as const).map(([key, label]) => <label key={key} className="flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-[11px]" style={{ borderColor: palette.border }}>{label}<input type="checkbox" disabled={!activeWorld.protocol.enabled} checked={activeWorld.protocol[key]} onChange={e => void updateProtocol({ [key]: e.target.checked })} /></label>)}
+            </div>
+            <textarea defaultValue={activeWorld.protocol.customInstructions} onBlur={e => void updateProtocol({ customInstructions: e.target.value })} rows={2} placeholder="协议补充指令（可选）" className="mt-2 w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-[11px] leading-relaxed outline-none" style={{ borderColor: palette.border }} />
+        </div>
+    </EchoesSheet>;
 
     if (view === 'lobby') return renderLobby();
     if (view === 'create') return renderCreate();
     if (!activeWorld) return renderLobby();
 
     const lastTurn = activeWorld.turns[activeWorld.turns.length - 1];
-    return <div className="echoes-root relative flex h-full min-h-0 flex-col" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
-        {ui.customCss && <style dangerouslySetInnerHTML={{ __html: ui.customCss }} />}
-        <header className="z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ background: `${palette.panel}e8`, borderColor: palette.border }}><button onClick={() => { setView('lobby'); setActiveWorld(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5"><ArrowLeft size={19} /></button><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-bold">{activeWorld.title}</h1><div className="mt-0.5 flex gap-2 text-[10px]" style={{ color: palette.muted }}><span>{activeWorld.state.chapter}</span><span>·</span><span>{activeWorld.state.location}</span></div></div><button onClick={() => setShowInspector(true)} className="rounded-xl p-2 opacity-65 hover:bg-black/5" aria-label="世界检查"><Eye size={18} /></button><button onClick={() => setShowSettings(true)} className="rounded-xl p-2 opacity-65 hover:bg-black/5" aria-label="自定义界面"><GearSix size={18} /></button></header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ maxWidth: activeWorld.ui.layout === 'terminal' ? 900 : 760, width: '100%', margin: '0 auto' }}>
-            {ui.layout !== 'minimal' && <div className="sticky top-0 z-[1] -mx-4 mb-4 flex items-center gap-2 border-b px-4 py-2 text-[10px]" style={{ background: `${palette.bg}e8`, borderColor: palette.border, color: palette.muted }}><span className="inline-flex items-center gap-1"><MapPin size={12} />{ui.labels.location}：{activeWorld.state.location}</span><span className="ml-auto inline-flex items-center gap-1"><Archive size={12} />{activeWorld.turns.length} 回合</span></div>}
-            {renderStatusPanel()}
-            <div className={activeWorld.ui.layout === 'archive' ? 'space-y-4' : 'space-y-6'}>{activeWorld.turns.map((turn, index) => <article key={turn.id} className={`${index === activeWorld.turns.length - 1 ? '' : 'opacity-90'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: palette.panel, borderColor: palette.border } : undefined}><div className="mb-2 flex items-center gap-2 text-[10px]" style={{ color: palette.muted }}><span className="font-semibold">{turn.chapter || activeWorld.state.chapter}</span><span>·</span><span>{new Date(turn.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>{index > 0 && <span className="ml-auto opacity-50">行动：{turn.action.slice(0, 28)}{turn.action.length > 28 ? '…' : ''}</span>}</div>{turn.blocks.map(block => <EchoesContentRenderer key={block.id} block={block} accent={ui.accent} sourceVisible={sourceVisible && ui.showSourceToggle} />)}</article>)}</div>
-            {generating && <div className="my-5 flex items-center gap-2 text-xs" style={{ color: palette.muted }}><CircleNotch className="animate-spin" size={15} />Echoes 正在回响……</div>}
+    const castEntries = parseCastEntries(activeWorld.cast, activeWorld.playerIdentity);
+    const mood = lastTurn?.mood || activeWorld.director.sceneType || '正在发生';
+    const atmosphereStyle = ui.theme === 'terminal'
+        ? 'radial-gradient(ellipse at 80% 0%, rgba(34,211,238,.10), transparent 48%), radial-gradient(ellipse at 0% 70%, rgba(74,222,128,.08), transparent 50%)'
+        : ui.theme === 'midnight'
+            ? 'radial-gradient(ellipse at 80% 0%, rgba(129,140,248,.14), transparent 50%), radial-gradient(ellipse at 0% 80%, rgba(244,114,182,.07), transparent 48%)'
+            : `radial-gradient(ellipse at 80% 0%, ${ui.accent}12, transparent 52%)`;
+    const tabItems = [
+        { key: 'story' as const, label: '故事', icon: BookOpenText },
+        { key: 'relations' as const, label: ui.labels.people, icon: UsersThree },
+        { key: 'status' as const, label: '状态', icon: Archive },
+    ];
+
+    const storyView = <>
+        <div className="mx-auto w-full max-w-2xl px-4 pb-5 pt-3">
+            {ui.showMoodCard !== false && <MoodCard chapter={lastTurn?.chapter || activeWorld.state.chapter} mood={mood} location={activeWorld.state.location} time={activeWorld.state.time} accent={ui.accent} palette={palette} />}
+            <div className={activeWorld.ui.layout === 'archive' ? 'space-y-4' : 'space-y-8'}>
+                {activeWorld.turns.map((turn, index) => {
+                    const isFresh = turn.id === freshTurnId && ui.typewriterEffect !== false;
+                    return <article key={turn.id} className={`${index === activeWorld.turns.length - 1 ? '' : 'opacity-[.88]'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-2xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: `${palette.panel}cc`, borderColor: palette.border } : undefined}>
+                        {index > 0 && <div className="mb-3 flex items-center gap-2 text-[10px]" style={{ color: palette.muted }}><span className="h-px flex-1" style={{ background: palette.border }} /><span>{turn.chapter || activeWorld.state.chapter}</span><span className="h-px flex-1" style={{ background: palette.border }} /></div>}
+                        {turn.action !== '（开场）' && <div className="mb-3 rounded-xl px-3 py-2 text-[10px]" style={{ background: `${ui.accent}09`, color: palette.muted }}><span style={{ color: ui.accent }}>你的行动</span><span className="mx-1.5 opacity-40">/</span>{turn.action}</div>}
+                        <TypewriterReveal active={isFresh}>{turn.blocks.map(block => <EchoesContentRenderer key={block.id} block={block} accent={ui.accent} sourceVisible={sourceVisible && ui.showSourceToggle} />)}</TypewriterReveal>
+                    </article>;
+                })}
+            </div>
+            {generating && <div className="my-6 flex items-center justify-center gap-2 rounded-2xl py-3 text-xs" style={{ color: palette.muted, background: `${palette.panel}88` }}><CircleNotch className="animate-spin" size={15} style={{ color: ui.accent }} />世界正在回应……</div>}
         </div>
-        <div className="shrink-0 border-t p-3 pb-[calc(.75rem+var(--safe-bottom,0px))]" style={{ background: `${palette.panel}f2`, borderColor: palette.border }}><div className="mx-auto max-w-[760px]">{ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating && <div className="mb-2 flex gap-2 overflow-x-auto pb-1">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} onClick={() => void playAction(suggestion)} className="shrink-0 rounded-full border px-3 py-1.5 text-[11px] text-left hover:bg-black/5" style={{ borderColor: `${ui.accent}55` }}>{suggestion}</button>)}</div>}<div className="flex items-end gap-2"><textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void playAction(input); } }} rows={2} disabled={generating} placeholder={activeWorld.mode === 'reader' ? '写下你想做的事，或让世界继续……' : '输入你的行动……'} className="min-h-[48px] flex-1 resize-none rounded-2xl border bg-transparent px-3 py-2.5 text-sm outline-none placeholder:opacity-40" style={{ borderColor: palette.border }} /><button onClick={() => void playAction(input)} disabled={generating || !input.trim()} className="rounded-2xl p-3 text-white disabled:opacity-30" style={{ background: ui.accent }}><Sparkle size={19} weight="fill" /></button></div><div className="mt-2 flex items-center gap-1.5 overflow-x-auto text-[10px]" style={{ color: palette.muted }}><button onClick={() => setSourceVisible(v => !v)} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 hover:bg-black/5">{sourceVisible ? <BracketsCurly size={13} /> : <FileText size={13} />}{sourceVisible ? '阅读视图' : '源码视图'}</button><button onClick={() => void rollbackLast()} disabled={activeWorld.turns.length <= 1 || generating} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 hover:bg-black/5 disabled:opacity-30"><ArrowCounterClockwise size={13} />回退</button><button onClick={() => void rerollLast()} disabled={activeWorld.turns.length <= 1 || generating} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 hover:bg-black/5 disabled:opacity-30"><GitBranch size={13} />重写本轮</button><button onClick={() => { try { navigator.clipboard?.writeText(JSON.stringify(activeWorld, null, 2)); addToast('世界档案已复制', 'success'); } catch { addToast('复制失败', 'error'); } }} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 hover:bg-black/5"><Copy size={13} />复制档案</button></div></div></div>
-        {showSettings && renderSettings()}{showInspector && renderInspector()}
+    </>;
+
+    const relationsView = <div className="mx-auto w-full max-w-2xl px-4 pb-6 pt-4">
+        <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>CAST & THREADS</p><h2 className="mt-1 text-xl font-bold">人物与关系</h2><p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>人物不会被预先锁死；这里记录已经在世界中出现、或由你明确写入的角色。</p></div>
+        {castEntries.length > 0 ? <div className="space-y-2.5">{castEntries.map((entry, index) => <div key={`${entry.name}-${index}`} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold" style={{ color: ui.accent, background: `${ui.accent}18` }}>{entry.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-bold">{entry.name}</h3>{entry.isPlayer && <span className="rounded-full px-2 py-0.5 text-[9px]" style={{ color: ui.accent, background: `${ui.accent}16` }}>玩家</span>}</div><p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed" style={{ color: palette.muted }}>{entry.detail}</p></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed p-8 text-center text-xs opacity-55" style={{ borderColor: palette.border }}>故事会在人物出现后逐渐形成关系。</div>}
+        <div className="mt-6 rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}88` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><GitBranch size={15} />正在牵动的线索</div>{activeWorld.director.activeThreads.length > 0 ? <div className="space-y-2">{activeWorld.director.activeThreads.map((thread, i) => <div key={`${thread}-${i}`} className="flex gap-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: ui.accent }}>0{i + 1}</span><span>{thread}</span></div>)}</div> : <p className="text-xs opacity-50">暂无已记录的活跃线索。</p>}</div>
+    </div>;
+
+    const statusView = <div className="mx-auto w-full max-w-2xl space-y-3 px-4 pb-6 pt-4">
+        <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>WORLD STATUS</p><h2 className="mt-1 text-xl font-bold">世界状态</h2><p className="mt-1 text-xs" style={{ color: palette.muted }}>这里是玩家可见的记录；幕后硬事实仍由 Echoes 负责维护。</p></div>
+        {ui.showStatus && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><Compass size={16} />当前状态</div><div className="grid grid-cols-2 gap-3 text-xs"><div><span className="text-[10px] opacity-55">{ui.labels.time}</span><p className="mt-1 font-semibold">{activeWorld.state.time}</p></div><div><span className="text-[10px] opacity-55">{ui.labels.location}</span><p className="mt-1 font-semibold">{activeWorld.state.location}</p></div><div><span className="text-[10px] opacity-55">{ui.labels.chapters}</span><p className="mt-1 font-semibold">{activeWorld.state.chapter}</p></div><div><span className="text-[10px] opacity-55">回合</span><p className="mt-1 font-semibold">{activeWorld.turns.length}</p></div>{typeof activeWorld.state.health === 'number' && <div><span className="text-[10px] opacity-55">生命</span><p className="mt-1 font-semibold">{activeWorld.state.health}</p></div>}{typeof activeWorld.state.sanity === 'number' && <div><span className="text-[10px] opacity-55">精神</span><p className="mt-1 font-semibold">{activeWorld.state.sanity}</p></div>}</div></section>}
+        {!!activeWorld.state.inventory?.length && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><Archive size={16} />{ui.labels.inventory}</div><div className="flex flex-wrap gap-2">{activeWorld.state.inventory.map((item, i) => <span key={`${item}-${i}`} className="rounded-full px-2.5 py-1 text-[11px]" style={{ background: `${ui.accent}15`, color: ui.accent }}>{item}</span>)}</div></section>}
+        {ui.showFacts && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><FileText size={16} />{ui.labels.clues}</div>{activeWorld.knownFacts.length ? <ul className="space-y-2 text-xs leading-relaxed" style={{ color: palette.muted }}>{activeWorld.knownFacts.map((fact, i) => <li key={`${fact}-${i}`} className="flex gap-2"><span style={{ color: ui.accent }}>·</span><span>{fact}</span></li>)}</ul> : <p className="text-xs opacity-50">暂时没有可确认的记录。</p>}</section>}
+        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><ChartLine size={16} />导演节奏</div><div className="mb-2 flex items-center justify-between text-xs"><span style={{ color: palette.muted }}>{activeWorld.director.sceneType || '场景推进'}</span><span>{activeWorld.director.pressure} / 100</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background: `${ui.accent}18` }}><div className="h-full rounded-full transition-all" style={{ width: `${activeWorld.director.pressure}%`, background: ui.accent }} /></div>{activeWorld.director.currentGoal && <p className="mt-3 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: palette.text }}>当前方向：</span>{activeWorld.director.currentGoal}</p>}</section>
+        <button onClick={() => setShowRawState(v => !v)} className="flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[11px] opacity-65" style={{ borderColor: palette.border }}><span>查看原始状态数据</span><CaretDown size={14} style={{ transform: showRawState ? 'rotate(180deg)' : undefined }} /></button>{showRawState && <pre className="max-h-80 overflow-auto rounded-xl p-3 font-mono text-[10px] leading-relaxed" style={{ background: `${palette.panel}b8` }}>{JSON.stringify(activeWorld.state, null, 2)}</pre>}
+    </div>;
+
+    const actionDock = activeTab === 'story' && <div className="shrink-0 border-t px-4 pb-2 pt-2" style={{ background: `${palette.panel}f5`, borderColor: palette.border }}>
+        <div className="mx-auto max-w-2xl">
+            {ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating && <div className="mb-2 space-y-1.5">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} onClick={() => void playAction(suggestion)} className="flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-[11px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}42`, background: `${ui.accent}07` }}><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px]" style={{ background: `${ui.accent}18`, color: ui.accent }}>{i + 1}</span><span>{suggestion}</span></button>)}</div>}
+            <div className="flex items-end gap-2"><textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void playAction(input); } }} rows={2} disabled={generating} placeholder={activeWorld.mode === 'reader' ? '写下你想做的事，或让世界继续……' : '输入你的行动……'} className="min-h-[48px] flex-1 resize-none rounded-2xl border bg-transparent px-3 py-2.5 text-sm outline-none placeholder:opacity-40" style={{ borderColor: palette.border }} /><button onClick={() => void playAction(input)} disabled={generating || !input.trim()} className="rounded-2xl p-3 text-white shadow-sm disabled:opacity-30" style={{ background: ui.accent }}><Sparkle size={19} weight="fill" /></button></div>
+            <div className="mt-1.5 flex items-center gap-1 text-[10px]" style={{ color: palette.muted }}><button onClick={() => setSourceVisible(v => !v)} className="rounded-lg px-2 py-1 hover:bg-black/5">{sourceVisible ? '阅读视图' : '源码视图'}</button><button onClick={() => void rollbackLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-lg px-2 py-1 hover:bg-black/5 disabled:opacity-30">回退</button><button onClick={() => void rerollLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-lg px-2 py-1 hover:bg-black/5 disabled:opacity-30">重写</button><button onClick={() => { try { navigator.clipboard?.writeText(JSON.stringify(activeWorld, null, 2)); addToast('世界档案已复制', 'success'); } catch { addToast('复制失败', 'error'); } }} className="ml-auto rounded-lg px-2 py-1 hover:bg-black/5">复制档案</button></div>
+        </div>
+    </div>;
+
+    return <div className="echoes-root relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
+        {ui.customCss && <style dangerouslySetInnerHTML={{ __html: ui.customCss }} />}
+        <div className="pointer-events-none absolute inset-0" style={{ background: atmosphereStyle }} />
+        <header className="relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ background: `${palette.panel}e6`, borderColor: palette.border }}>
+            <button onClick={() => { setView('lobby'); setActiveWorld(null); setActiveTab('story'); setFreshTurnId(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="返回世界列表"><ArrowLeft size={19} /></button>
+            <div className="min-w-0 flex-1"><p className="truncate text-[9px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>ECHOES · {modeLabel(activeWorld.mode)}</p><h1 className="truncate text-[14px] font-bold">{activeWorld.title}</h1></div>
+            <button onClick={() => setShowWritingGuideSheet(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="写作指导"><PencilSimple size={17} /></button>
+            <button onClick={() => setShowInspector(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="世界检查"><Eye size={17} /></button>
+            <button onClick={() => setShowSettings(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="界面设置"><GearSix size={17} /></button>
+        </header>
+        <div className="relative z-10 flex shrink-0 items-center justify-between border-b px-4 py-2 text-[10px]" style={{ background: `${palette.panel}b8`, borderColor: palette.border, color: palette.muted }}><span className="inline-flex items-center gap-1.5"><MapPin size={12} style={{ color: ui.accent }} />{activeWorld.state.location}</span><span>{activeWorld.state.time}</span><span>{activeWorld.state.chapter}</span><span>{activeWorld.turns.length} 回合</span></div>
+        <main className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+            {activeTab === 'story' ? storyView : activeTab === 'relations' ? relationsView : statusView}
+        </main>
+        {actionDock}
+        <nav className="relative z-10 flex shrink-0 items-stretch border-t pb-[var(--safe-bottom)]" style={{ background: `${palette.panel}f7`, borderColor: palette.border }}>
+            {tabItems.map(tab => { const Icon = tab.icon; const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} className="flex flex-1 flex-col items-center gap-1 px-2 pb-2 pt-2 text-[10px] transition" style={{ color: active ? ui.accent : palette.muted }}><Icon size={18} weight={active ? 'fill' : 'regular'} /><span className={active ? 'font-bold' : ''}>{tab.label}</span>{active && <span className="h-0.5 w-5 rounded-full" style={{ background: ui.accent }} />}</button>; })}
+        </nav>
+        {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}
     </div>;
 };
 
