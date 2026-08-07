@@ -618,7 +618,7 @@ const EchoesApp: React.FC = () => {
             // 浅比较关键字段：绝大多数 UI/设置修改只会改少量字段，turns 和 blocks 引用变了才更新
             const same = prev.turns === updated.turns && prev.state === updated.state
                 && prev.hardFacts === updated.hardFacts && prev.knownFacts === updated.knownFacts
-                && prev.director === updated.director && prev.ui === updated.ui
+                && prev.director === updated.director && prev.ui === updated.ui && prev.writingGuide === updated.writingGuide
                 && prev.mode === updated.mode && prev.qualityMode === updated.qualityMode
                 && prev.allowedFormats === updated.allowedFormats && prev.continuitySummary === updated.continuitySummary;
             return same ? prev : updated;
@@ -695,6 +695,17 @@ const EchoesApp: React.FC = () => {
         setConfirmDelete(null); addToast('Echoes 世界已删除', 'info');
     };
 
+    const [writingGuideDraft, setWritingGuideDraft] = useState<Record<string, string>>({});
+    const writingGuideTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+    const debouncedUpdateWritingGuide = (key: keyof EchoesWritingGuide, value: string | number) => {
+        if (!activeWorld) return;
+        if (writingGuideTimerRef.current[key]) clearTimeout(writingGuideTimerRef.current[key]);
+        writingGuideTimerRef.current[key] = setTimeout(() => {
+            void updateWritingGuide({ [key]: value } as Partial<EchoesWritingGuide>);
+        }, 800);
+    };
+
     const updateUI = async (patch: Partial<EchoesUIProfile>) => {
         if (!activeWorld || generatingRef.current) return;
         await persistWorld({ ...activeWorld, ui: { ...activeWorld.ui, ...patch, labels: { ...activeWorld.ui.labels, ...(patch.labels || {}) } } });
@@ -714,7 +725,10 @@ const EchoesApp: React.FC = () => {
 
     const updateWritingGuide = async (patch: Partial<EchoesWritingGuide>) => {
         if (!activeWorld || generatingRef.current) return;
-        await persistWorld({ ...activeWorld, writingGuide: { ...activeWorld.writingGuide, ...patch } });
+        const newGuide = { ...activeWorld.writingGuide, ...patch };
+        // 如果内容完全一样，直接返回，避免触发重渲染
+        if (JSON.stringify(newGuide) === JSON.stringify(activeWorld.writingGuide)) return;
+        await persistWorld({ ...activeWorld, writingGuide: newGuide });
     };
 
     const toggleFormat = async (format: EchoesFormat) => {
@@ -822,7 +836,7 @@ const EchoesApp: React.FC = () => {
                 </label>
                 <label className="block">
                     <span className="mb-1 block text-[10px] font-semibold opacity-70">和本体的写作指导（自由文本，直接对 AI 说）</span>
-                    <textarea value={activeWorld.writingGuide.authorInstructions} onChange={e => void updateWritingGuide({ authorInstructions: e.target.value })} rows={4} placeholder="例如：不要用倒叙开场；这一章节奏放慢；参考东野圭吾的叙事节奏；下一轮让某角色出场……" className="w-full resize-y rounded-lg border bg-transparent px-2 py-1.5 text-[11px] leading-relaxed" style={{ borderColor: palette.border }} />
+                    <textarea value={activeWorld.writingGuide.authorInstructions} onChange={e => void updateWritingGuide({ authorInstructions: e.target.value })} onBlur={e => void updateWritingGuide({ authorInstructions: e.target.value })} rows={4} placeholder="例如：不要用倒叙开场；这一章节奏放慢；参考东野圭吾的叙事节奏；下一轮让某角色出场……" className="w-full resize-y rounded-lg border bg-transparent px-2 py-1.5 text-[11px] leading-relaxed" style={{ borderColor: palette.border }} />
                 </label>
             </div>
         </div>
