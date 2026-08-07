@@ -33,6 +33,7 @@ import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
+import { pullLatestGameResources } from '../utils/gameUpdate';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -563,6 +564,8 @@ const Settings: React.FC = () => {
   const [showAmsg2Modal, setShowAmsg2Modal] = useState(false);
   const [showVapidModal, setShowVapidModal] = useState(false);
   const [vapidReadyTick, setVapidReadyTick] = useState(0); // 关闭 VAPID 弹窗后刷新顶层徽标
+  const [gameUpdateBusy, setGameUpdateBusy] = useState(false);
+  const [gameUpdateStatus, setGameUpdateStatus] = useState('');
 
   // 模型选择 Modal 的过滤 + 公共前缀（memo 掉，避免每次 Settings 重渲染都重算）
   const modelPickerView = useMemo(() => {
@@ -590,6 +593,19 @@ const Settings: React.FC = () => {
   const refreshPpDiag = useCallback(async () => {
       try { setPpDiag(await getPushDiagnostics()); } catch { /* ignore */ }
   }, []);
+
+  const handlePullGameUpdate = async () => {
+      if (gameUpdateBusy) return;
+      setGameUpdateBusy(true);
+      setGameUpdateStatus('正在检查最新游戏资源…');
+      try {
+          await pullLatestGameResources();
+      } catch (error: any) {
+          setGameUpdateBusy(false);
+          setGameUpdateStatus(`更新失败：${error?.message || '网络不可用，请稍后重试'}`);
+          addToast('游戏更新失败，未修改本地数据', 'error');
+      }
+  };
 
   const doEnablePushAccelerator = async () => {
       if (ppBusy) return;
@@ -2726,6 +2742,39 @@ const Settings: React.FC = () => {
             </div>
         </SettingsSection>
         )}
+
+        <SettingsSection
+            title="游戏更新与稳定性"
+            icon={
+                <div className="p-2 bg-emerald-100/70 rounded-xl text-emerald-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-4 h-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992V4.356m0 4.992a9 9 0 1 0 2.168 5.815" />
+                    </svg>
+                </div>
+            }
+        >
+            <div className="space-y-3">
+                <p className="text-xs leading-relaxed text-slate-500">
+                    手动拉取 SullyOS 整套游戏的最新前端资源，适合遇到页面崩溃、旧版本缓存或更新后显示异常时使用。
+                </p>
+                <button
+                    type="button"
+                    onClick={() => void handlePullGameUpdate()}
+                    disabled={gameUpdateBusy}
+                    className="w-full rounded-2xl bg-emerald-600 py-3 text-xs font-bold text-white shadow-sm transition active:scale-[.98] disabled:opacity-60"
+                >
+                    {gameUpdateBusy ? '正在拉取最新游戏资源…' : '检查并拉取游戏更新'}
+                </button>
+                {gameUpdateStatus && (
+                    <p className={`rounded-xl px-3 py-2 text-[10px] leading-relaxed ${gameUpdateStatus.startsWith('更新失败') ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                        {gameUpdateStatus}
+                    </p>
+                )}
+                <p className="text-[10px] leading-relaxed text-slate-400">
+                    只清理网页前端缓存和旧 Service Worker，不会删除世界存档、聊天记录、API 配置或其他本地数据。更新完成后页面会自动重新加载。
+                </p>
+            </div>
+        </SettingsSection>
 
         <VersionInfo />
 
