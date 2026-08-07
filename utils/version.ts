@@ -2,7 +2,7 @@
  * SullyOS 版本与更新日志管理
  */
 
-export const CURRENT_VERSION = '1.2.0';
+export const CURRENT_VERSION = '1.3.0';
 export const VERSION_DATE = '2026-08-07';
 
 export interface VersionLog {
@@ -14,6 +14,17 @@ export interface VersionLog {
 }
 
 export const VERSION_LOGS: VersionLog[] = [
+    {
+        version: '1.3.0',
+        date: '2026-08-07',
+        title: '更新中心上线 + 全局版本提示',
+        changes: [
+            '【更新】全局检测新版本，发现更新时自动询问是否立即更新',
+            '【更新】更新过程显示检查、下载和失败状态',
+            '【更新】更新成功重载后自动显示本次更新内容',
+            '【稳定性】没有更新或更新失败时不重开游戏、不修改本地数据',
+        ],
+    },
     {
         version: '1.2.0',
         date: '2026-08-07',
