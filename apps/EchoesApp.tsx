@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Archive, ArrowLeft, BookOpenText, BracketsCurly, Check, CircleNotch, Compass,
+    Archive, ArrowLeft, BookOpenText, BracketsCurly, CaretDown, Check, CircleNotch, Compass,
     Copy, Eye, FileText, FloppyDisk, GearSix, GitBranch, List, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
 } from '@phosphor-icons/react';
@@ -108,6 +108,31 @@ const normalizeAccent = (value: unknown): string => {
     const color = cleanText(value);
     return /^#[0-9a-f]{3,8}$/i.test(color) ? color : DEFAULT_UI.accent;
 };
+
+/**
+ * 折叠式卡片组件：用于创建界面的分组表单。
+ * 点击标题展开/收起，一次只展开一个。
+ */
+const FoldCard: React.FC<{
+    id: string;
+    title: string;
+    status?: string;
+    open: boolean;
+    onToggle: () => void;
+    children: React.ReactNode;
+    accent?: string;
+}> = ({ title, status, open, onToggle, children, accent = '#a78bfa' }) => (
+    <div className="overflow-hidden rounded-2xl border transition-all" style={{ borderColor: open ? accent : 'rgba(255,255,255,.12)', background: open ? 'rgba(255,255,255,.06)' : 'rgba(255,255,255,.02)' }}>
+        <button onClick={onToggle} className="flex w-full items-center justify-between px-4 py-3.5 text-left transition">
+            <div className="min-w-0 flex-1">
+                <span className="block text-sm font-bold" style={{ color: open ? accent : '#e0d5c8' }}>{title}</span>
+                {status && <span className="mt-0.5 block text-[10px] opacity-50">{status}</span>}
+            </div>
+            <CaretDown size={16} weight="bold" className="ml-3 shrink-0 transition-transform" style={{ transform: open ? 'rotate(180deg)' : 'none', color: accent, opacity: open ? 1 : 0.4 }} />
+        </button>
+        {open && <div className="border-t px-4 py-4" style={{ borderColor: 'rgba(255,255,255,.08)' }}>{children}</div>}
+    </div>
+);
 
 /**
  * 竖向单选列表：每个选项占一整行，从上到下排列，不使用网格多列、也不横向滑动。
@@ -415,7 +440,10 @@ const EchoesApp: React.FC = () => {
     const [sourceVisible, setSourceVisible] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [showInspector, setShowInspector] = useState(false);
+    const [showWritingGuideSheet, setShowWritingGuideSheet] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+    const [openFold, setOpenFold] = useState<string>('world'); // 创建界面当前展开的折叠块ID
+    const [createStep, setCreateStep] = useState(1); // 创建界面步骤：1=世界观 2=游戏设定 3=可选细节
     const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'] });
     const [draftWritingGuide, setDraftWritingGuide] = useState<EchoesWritingGuide>({ ...DEFAULT_WRITING_GUIDE });
     const [draftUI, setDraftUI] = useState<EchoesUIProfile>(DEFAULT_UI);
@@ -769,76 +797,18 @@ const EchoesApp: React.FC = () => {
     const renderExperienceSettings = () => activeWorld && <>
         <div>
             <span className="mb-2 block font-bold opacity-70">剧情质量</span>
-            <OptionList
-                items={(Object.keys(QUALITY_META) as EchoesQualityMode[]).map(q => ({ key: q, label: QUALITY_META[q].label, description: QUALITY_META[q].description }))}
-                activeKey={activeWorld.qualityMode} onSelect={key => void updateQuality(key as EchoesQualityMode)}
-                accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-            />
+            <div className="grid grid-cols-3 gap-2">{(Object.keys(QUALITY_META) as EchoesQualityMode[]).map(quality => <button key={quality} onClick={() => void updateQuality(quality)} className="rounded-xl border p-2 text-left" style={{ borderColor: activeWorld.qualityMode === quality ? ui.accent : palette.border, background: activeWorld.qualityMode === quality ? `${ui.accent}18` : 'transparent' }}><span className="block font-bold">{QUALITY_META[quality].label}</span><span className="mt-1 block text-[9px] opacity-60">{QUALITY_META[quality].description}</span></button>)}</div>
             <p className="mt-2 text-[10px] opacity-50">最大档会在关键回合进行编辑检查与必要修复，可能多等待一次 AI 请求。</p>
         </div>
         <div>
             <span className="mb-2 block font-bold opacity-70">当前游戏档位</span>
-            <OptionList
-                items={(Object.keys(MODE_META) as EchoesMode[]).map(m => ({ key: m, label: MODE_META[m].label, description: MODE_META[m].description }))}
-                activeKey={activeWorld.mode} onSelect={key => void updateMode(key as EchoesMode)}
-                accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-            />
+            <div className="grid grid-cols-2 gap-2">{(Object.keys(MODE_META) as EchoesMode[]).map(mode => <button key={mode} onClick={() => void updateMode(mode)} className={`rounded-xl border p-2.5 text-left ${ui === activeWorld.ui && activeWorld.mode === mode ? 'ring-2' : ''}`} style={{ borderColor: activeWorld.mode === mode ? ui.accent : palette.border }}><span className="block font-bold">{MODE_META[mode].label}</span><span className="mt-1 block text-[10px] opacity-60">{MODE_META[mode].description}</span></button>)}</div>
             <p className="mt-2 text-[10px] opacity-50">切换只影响后续回合，不会重写已经发生的剧情。</p>
         </div>
         <div>
             <span className="mb-2 block font-bold opacity-70">允许的剧情格式</span>
-            <div className="flex flex-col gap-1.5">{ALL_FORMATS.map(format => <button key={format} onClick={() => void toggleFormat(format)} className="flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[11px]" style={{ borderColor: enabledFormats.includes(format) ? ui.accent : palette.border, background: enabledFormats.includes(format) ? `${ui.accent}14` : 'transparent', color: enabledFormats.includes(format) ? ui.accent : palette.muted }}><span>{FORMAT_LABELS[format]}</span>{enabledFormats.includes(format) && <Check size={13} weight="bold" />}</button>)}</div>
+            <div className="flex flex-wrap gap-1.5">{ALL_FORMATS.map(format => <button key={format} onClick={() => void toggleFormat(format)} className="rounded-full border px-2 py-1 text-[10px]" style={{ borderColor: enabledFormats.includes(format) ? ui.accent : palette.border, background: enabledFormats.includes(format) ? `${ui.accent}18` : 'transparent', color: enabledFormats.includes(format) ? ui.accent : palette.muted }}>{FORMAT_LABELS[format]}{enabledFormats.includes(format) ? ' ✓' : ''}</button>)}</div>
             <p className="mt-2 text-[10px] opacity-50">正文默认保持可读；资料、日志、表格和图表由 AI 按场景选择。</p>
-        </div>
-        <div className="border-t pt-4" style={{ borderColor: palette.border }}>
-            <span className="mb-1 block font-bold opacity-70">写作指导</span>
-            <p className="mb-3 text-[10px] leading-relaxed opacity-50">这不是世界内容，是你作为作者直接对 AI 写作本体的要求，角色感知不到。可随时修改，只影响后续回合。</p>
-            <div className="space-y-3">
-                <div>
-                    <span className="mb-1.5 block text-[10px] font-semibold opacity-70">写作方式</span>
-                    <OptionList
-                        items={[{ key: '', label: '不限定', description: '由 AI 根据世界观自行判断' }, ...STYLE_OPTIONS.map(s => ({ key: s, label: s }))]}
-                        activeKey={activeWorld.writingGuide.style} onSelect={key => void updateWritingGuide({ style: key })}
-                        accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-                    />
-                    <input value={activeWorld.writingGuide.style} onChange={e => void updateWritingGuide({ style: e.target.value })} placeholder="或直接输入自定义写作方式" className="mt-2 w-full rounded-lg border bg-transparent px-2 py-1.5 text-[11px]" style={{ borderColor: palette.border }} />
-                </div>
-                <div>
-                    <span className="mb-1.5 block text-[10px] font-semibold opacity-70">语气/氛围</span>
-                    <OptionList
-                        items={[{ key: '', label: '不限定' }, ...TONE_OPTIONS.map(t => ({ key: t, label: t }))]}
-                        activeKey={activeWorld.writingGuide.tone} onSelect={key => void updateWritingGuide({ tone: key })}
-                        accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-                    />
-                    <input value={activeWorld.writingGuide.tone} onChange={e => void updateWritingGuide({ tone: e.target.value })} placeholder="或直接输入自定义语气/氛围" className="mt-2 w-full rounded-lg border bg-transparent px-2 py-1.5 text-[11px]" style={{ borderColor: palette.border }} />
-                </div>
-                <div>
-                    <span className="mb-1.5 block text-[10px] font-semibold opacity-70">视角 / 人称</span>
-                    <OptionList
-                        items={[{ key: '', label: '不限定' }, ...PERSPECTIVE_OPTIONS.map(p => ({ key: p, label: p }))]}
-                        activeKey={activeWorld.writingGuide.perspective} onSelect={key => void updateWritingGuide({ perspective: key })}
-                        accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-                    />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <label className="block">
-                        <span className="mb-1 block text-[10px] font-semibold opacity-70">单轮字数下限</span>
-                        <input type="number" min={0} value={activeWorld.writingGuide.minWords || ''} onChange={e => void updateWritingGuide({ minWords: Number(e.target.value) || 0 })} placeholder="不限" className="w-full rounded-lg border bg-transparent px-2 py-1.5 text-[11px]" style={{ borderColor: palette.border }} />
-                    </label>
-                    <label className="block">
-                        <span className="mb-1 block text-[10px] font-semibold opacity-70">单轮字数上限</span>
-                        <input type="number" min={0} value={activeWorld.writingGuide.maxWords || ''} onChange={e => void updateWritingGuide({ maxWords: Number(e.target.value) || 0 })} placeholder="不限" className="w-full rounded-lg border bg-transparent px-2 py-1.5 text-[11px]" style={{ borderColor: palette.border }} />
-                    </label>
-                </div>
-                <label className="block">
-                    <span className="mb-1 block text-[10px] font-semibold opacity-70">参考轮数（AI 回看多少轮历史）</span>
-                    <input type="number" min={1} max={40} value={activeWorld.writingGuide.contextRounds || DEFAULT_WRITING_GUIDE.contextRounds} onChange={e => void updateWritingGuide({ contextRounds: Number(e.target.value) || DEFAULT_WRITING_GUIDE.contextRounds })} className="w-full rounded-lg border bg-transparent px-2 py-1.5 text-[11px]" style={{ borderColor: palette.border }} />
-                </label>
-                <label className="block">
-                    <span className="mb-1 block text-[10px] font-semibold opacity-70">和本体的写作指导（自由文本，直接对 AI 说）</span>
-                    <textarea value={activeWorld.writingGuide.authorInstructions} onChange={e => void updateWritingGuide({ authorInstructions: e.target.value })} onBlur={e => void updateWritingGuide({ authorInstructions: e.target.value })} rows={4} placeholder="例如：不要用倒叙开场；这一章节奏放慢；参考东野圭吾的叙事节奏；下一轮让某角色出场……" className="w-full resize-y rounded-lg border bg-transparent px-2 py-1.5 text-[11px] leading-relaxed" style={{ borderColor: palette.border }} />
-                </label>
-            </div>
         </div>
     </>;
 
@@ -850,108 +820,121 @@ const EchoesApp: React.FC = () => {
         </div>
     </div>;
 
-    const renderCreate = () => <div className="flex h-full min-h-0 flex-col bg-[#101116] text-white" style={{ paddingTop: 'var(--safe-top)' }}>
-        <header className="flex items-center gap-3 border-b border-white/10 px-4 py-3"><button onClick={() => setView('lobby')} className="rounded-xl p-2 text-white/65 hover:bg-white/10"><ArrowLeft size={20} /></button><div><h1 className="font-bold">新建 Echoes 世界</h1><p className="text-[10px] text-white/40">世界、玩法、UI 都由你决定</p></div></header>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-28">
-            <div className="space-y-4">
-                <label className="block"><span className="mb-1.5 block text-xs font-bold text-white/65">世界名称</span><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="例如：长安旧雪" className="w-full rounded-xl border border-white/10 bg-white/[.06] px-3 py-3 text-sm outline-none placeholder:text-white/25 focus:border-violet-400" /></label>
-                <label className="block"><span className="mb-1.5 block text-xs font-bold text-white/65">世界观 / 你想玩的故事</span><textarea value={draft.world} onChange={e => setDraft({ ...draft, world: e.target.value })} rows={5} placeholder="例如：架空古代探案，没有超自然力量，节奏慢热，重视人物关系和逻辑推理……" className="w-full resize-y rounded-xl border border-white/10 bg-white/[.06] px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-white/25 focus:border-violet-400" /></label>
-                <label className="block"><span className="mb-1.5 block text-xs font-bold text-white/65">玩家身份（可选）</span><textarea value={draft.identity} onChange={e => setDraft({ ...draft, identity: e.target.value })} rows={3} placeholder="你是谁？目标、背景、性格、秘密……" className="w-full resize-y rounded-xl border border-white/10 bg-white/[.06] px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-white/25 focus:border-violet-400" /></label>
-                <label className="block"><span className="mb-1.5 block text-xs font-bold text-white/65">主要人物 / 阵营（可选）</span><textarea value={draft.cast} onChange={e => setDraft({ ...draft, cast: e.target.value })} rows={4} placeholder="可以写姓名、身份、性格、目标、关系；AI 也可以自然生成。" className="w-full resize-y rounded-xl border border-white/10 bg-white/[.06] px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-white/25 focus:border-violet-400" /></label>
-                <div>
-                    <span className="mb-2 block text-xs font-bold text-white/65">游戏档位</span>
-                    <OptionList items={(Object.keys(MODE_META) as EchoesMode[]).map(m => ({ key: m, label: MODE_META[m].label, description: MODE_META[m].description }))} activeKey={draft.mode} onSelect={key => setDraft({ ...draft, mode: key as EchoesMode })} accent="#a78bfa" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
+    const CREATE_STEPS = [
+        { key: 1, label: '世界观', icon: BookOpenText, accent: '#a78bfa' },
+        { key: 2, label: '身份与角色', icon: UsersThree, accent: '#f472b6' },
+        { key: 3, label: '玩法与写作', icon: Sparkle, accent: '#fbbf24' },
+        { key: 4, label: '外观', icon: Palette, accent: '#34d399' },
+    ] as const;
+
+    const renderCreate = () => {
+        const current = CREATE_STEPS[createStep - 1];
+        const CurrentIcon = current.icon;
+        const canProceedFromStep1 = draft.title.trim().length > 0 && draft.world.trim().length > 0;
+
+        const StepField: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
+            <div className="mb-5">
+                <div className="mb-2 flex items-baseline justify-between">
+                    <span className="text-[13px] font-semibold text-white/80">{label}</span>
+                    {hint && <span className="text-[10px] text-white/30">{hint}</span>}
                 </div>
-                <div>
-                    <span className="mb-2 block text-xs font-bold text-white/65">剧情质量</span>
-                    <OptionList items={(Object.keys(QUALITY_META) as EchoesQualityMode[]).map(q => ({ key: q, label: QUALITY_META[q].label, description: QUALITY_META[q].description }))} activeKey={draft.qualityMode} onSelect={key => setDraft({ ...draft, qualityMode: key as EchoesQualityMode })} accent="#fbbf24" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
-                </div>
-                <div>
-                    <span className="mb-2 block text-xs font-bold text-white/65">剧情排版倾向</span>
-                    <OptionList items={([{ key: 'adaptive', label: '自适应', description: '根据内容选择合适格式' }, { key: 'novel', label: '小说优先', description: '正文尽量保持连续阅读' }, { key: 'records', label: '档案优先', description: '世界内资料更丰富' }, { key: 'technical', label: '技术记录', description: '终端、数据、图表更多' }])} activeKey={draft.formatting} onSelect={key => setDraft({ ...draft, formatting: key as EchoesWorld['formattingPreference'] })} accent="#22d3ee" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[.04] p-4">
-                    <div className="mb-3 flex items-center gap-2 text-xs font-bold"><Palette size={15} /> 初始 UI</div>
-                    <span className="mb-2 block text-[10px] font-semibold text-white/50">布局</span>
-                    <OptionList items={(Object.keys(LAYOUT_META) as EchoesLayout[]).map(l => ({ key: l, label: LAYOUT_META[l] }))} activeKey={draftUI.layout} onSelect={key => setDraftUI({ ...draftUI, layout: key as EchoesLayout })} accent="#a78bfa" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
-                    <span className="mb-2 mt-3 block text-[10px] font-semibold text-white/50">主题</span>
-                    <OptionList items={(Object.keys(THEME_META) as EchoesTheme[]).map(t => ({ key: t, label: t === 'paper' ? '纸感浅色' : t === 'midnight' ? '午夜深色' : t === 'sepia' ? '复古棕褐' : t === 'mist' ? '薄雾冷调' : '终端绿', swatch: THEME_META[t].bg }))} activeKey={draftUI.theme} onSelect={key => setDraftUI({ ...draftUI, theme: key as EchoesTheme })} accent="#a78bfa" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
-                    <p className="mt-3 text-[10px] leading-relaxed text-white/40">创建后仍可在世界内修改布局、颜色、字体、模块和词汇。AI 不能未经允许改动你的 UI。</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[.04] p-4">
-                    <div className="mb-1 flex items-center gap-2 text-xs font-bold"><PencilSimple size={15} /> 写作指导</div>
-                    <p className="mb-3 text-[10px] leading-relaxed text-white/40">这不是世界内容，是你直接对 AI 写作本体说的话；创建后仍可随时修改。</p>
-                    <div className="space-y-3">
-                        <div>
-                            <span className="mb-1.5 block text-[10px] font-semibold text-white/55">写作方式</span>
-                            <OptionList items={[{ key: '', label: '不限定' }, ...STYLE_OPTIONS.map(s => ({ key: s, label: s }))]} activeKey={draftWritingGuide.style} onSelect={key => setDraftWritingGuide({ ...draftWritingGuide, style: key })} accent="#f472b6" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
-                        </div>
-                        <div>
-                            <span className="mb-1.5 block text-[10px] font-semibold text-white/55">语气/氛围</span>
-                            <OptionList items={[{ key: '', label: '不限定' }, ...TONE_OPTIONS.map(t => ({ key: t, label: t }))]} activeKey={draftWritingGuide.tone} onSelect={key => setDraftWritingGuide({ ...draftWritingGuide, tone: key })} accent="#f472b6" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
-                        </div>
-                        <div>
-                            <span className="mb-1.5 block text-[10px] font-semibold text-white/55">视角 / 人称</span>
-                            <OptionList items={[{ key: '', label: '不限定' }, ...PERSPECTIVE_OPTIONS.map(p => ({ key: p, label: p }))]} activeKey={draftWritingGuide.perspective} onSelect={key => setDraftWritingGuide({ ...draftWritingGuide, perspective: key })} accent="#f472b6" borderColor="rgba(255,255,255,.12)" mutedColor="rgba(255,255,255,.45)" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <label className="block"><span className="mb-1 block text-[10px] font-semibold text-white/55">单轮字数下限</span><input type="number" min={0} value={draftWritingGuide.minWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, minWords: Number(e.target.value) || 0 })} placeholder="不限" className="w-full rounded-lg border border-white/10 bg-white/[.06] px-2 py-1.5 text-[11px] outline-none" /></label>
-                            <label className="block"><span className="mb-1 block text-[10px] font-semibold text-white/55">单轮字数上限</span><input type="number" min={0} value={draftWritingGuide.maxWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, maxWords: Number(e.target.value) || 0 })} placeholder="不限" className="w-full rounded-lg border border-white/10 bg-white/[.06] px-2 py-1.5 text-[11px] outline-none" /></label>
-                        </div>
-                        <label className="block"><span className="mb-1 block text-[10px] font-semibold text-white/55">参考轮数</span><input type="number" min={1} max={40} value={draftWritingGuide.contextRounds} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, contextRounds: Number(e.target.value) || DEFAULT_WRITING_GUIDE.contextRounds })} className="w-full rounded-lg border border-white/10 bg-white/[.06] px-2 py-1.5 text-[11px] outline-none" /></label>
-                        <label className="block"><span className="mb-1 block text-[10px] font-semibold text-white/55">和本体的写作指导</span><textarea value={draftWritingGuide.authorInstructions} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, authorInstructions: e.target.value })} rows={4} placeholder="直接对 AI 写作本体说的话，例如：不要用倒叙开场、节奏放慢、参考某种叙事风格……" className="w-full resize-y rounded-lg border border-white/10 bg-white/[.06] px-2 py-1.5 text-[11px] leading-relaxed outline-none" /></label>
+                {children}
+            </div>
+        );
+        const inputCls = "w-full rounded-2xl border border-white/[.08] bg-white/[.05] px-4 py-3 text-[14px] leading-relaxed outline-none transition placeholder:text-white/20 focus:border-white/25 focus:bg-white/[.08]";
+        const PillPicker = <T extends string>({ options, value, onChange, cols = 2 }: { options: { key: T; label: string; desc?: string }[]; value: T; onChange: (v: T) => void; cols?: number }) => (
+            <div className={`grid gap-2 ${cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-1'}`}>
+                {options.map(opt => {
+                    const active = opt.key === value;
+                    return (
+                        <button key={opt.key} onClick={() => onChange(opt.key)} className="relative overflow-hidden rounded-2xl border p-3 text-left transition-all"
+                            style={{ borderColor: active ? current.accent : 'rgba(255,255,255,.08)', background: active ? `${current.accent}1f` : 'rgba(255,255,255,.03)' }}>
+                            {active && <div className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full" style={{ background: current.accent }}><Check size={10} weight="bold" className="text-black" /></div>}
+                            <span className="block text-[12.5px] font-bold" style={{ color: active ? current.accent : '#e0d5c8' }}>{opt.label}</span>
+                            {opt.desc && <span className="mt-1 block text-[10px] leading-relaxed text-white/40">{opt.desc}</span>}
+                        </button>
+                    );
+                })}
+            </div>
+        );
+
+        return <div className="flex h-full min-h-0 flex-col overflow-hidden" style={{ paddingTop: 'var(--safe-top)', background: 'radial-gradient(circle at 20% 0%, rgba(167,139,250,.10), transparent 55%), radial-gradient(circle at 90% 20%, rgba(52,211,153,.06), transparent 45%), #0d0e13' }}>
+            <header className="flex items-center gap-3 px-4 pt-3 pb-2">
+                <button onClick={() => (createStep > 1 ? setCreateStep(createStep - 1) : setView('lobby'))} className="rounded-full p-2 text-white/60 transition hover:bg-white/10"><ArrowLeft size={19} /></button>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">{CREATE_STEPS.map(s => <div key={s.key} className="h-[3px] flex-1 rounded-full transition-all duration-300" style={{ background: s.key <= createStep ? current.accent : 'rgba(255,255,255,.1)' }} />)}</div>
+                    <div className="mt-1.5 flex items-center justify-between">
+                        <span className="text-[10px] font-medium uppercase tracking-[.15em] text-white/35">步骤 {createStep} / {CREATE_STEPS.length}</span>
+                        <span className="text-[10px] text-white/25">{current.label}</span>
                     </div>
                 </div>
-            </div>
-        </div>
-        <div className="border-t border-white/10 bg-[#101116]/95 p-4 pb-[calc(1rem+var(--safe-bottom,0px))]"><button onClick={() => void createWorld()} disabled={generating} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-cyan-500 py-3.5 text-sm font-bold shadow-lg shadow-violet-500/20 disabled:opacity-50">{generating ? <><CircleNotch className="animate-spin" size={18} />正在生成开场……</> : <><Sparkle size={18} />生成世界并开始</>}</button></div>
-    </div>;
+            </header>
 
-    const renderSettings = () => activeWorld && <div className="absolute inset-0 z-30 overflow-y-auto" style={{ background: `${palette.bg}f2`, color: palette.text, paddingTop: 'var(--safe-top)' }}>
-        <div className="mx-auto max-w-lg rounded-3xl border m-4 p-4 shadow-2xl" style={{ background: palette.panel, borderColor: palette.border }}>
-            <div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-bold"><GearSix size={18} />自定义 Echoes</h2><button onClick={() => setShowSettings(false)} className="rounded-lg px-2 py-1 text-xs opacity-60 hover:bg-black/5">完成</button></div>
-            <div className="space-y-4 text-xs">
-                {renderExperienceSettings()}
-                <div className="border-t pt-4" style={{ borderColor: palette.border }}>
-                    <span className="mb-2 block font-bold opacity-70">布局</span>
-                    <OptionList
-                        items={(Object.keys(LAYOUT_META) as EchoesLayout[]).map(l => ({ key: l, label: LAYOUT_META[l] }))}
-                        activeKey={ui.layout} onSelect={key => void updateUI({ layout: key as EchoesLayout })}
-                        accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-                    />
-                </div>
-                <div>
-                    <span className="mb-2 block font-bold opacity-70">主题</span>
-                    <OptionList
-                        items={(Object.keys(THEME_META) as EchoesTheme[]).map(t => ({ key: t, label: t === 'paper' ? '纸感浅色' : t === 'midnight' ? '午夜深色' : t === 'sepia' ? '复古棕褐' : t === 'mist' ? '薄雾冷调' : '终端绿', swatch: THEME_META[t].bg }))}
-                        activeKey={ui.theme} onSelect={key => void updateUI({ theme: key as EchoesTheme })}
-                        accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-                    />
-                </div>
-                <label className="block"><span className="mb-1 block font-bold opacity-70">强调色</span><input type="color" value={ui.accent} onChange={e => void updateUI({ accent: e.target.value })} className="h-9 w-full rounded-lg border-0 bg-transparent" /></label>
-                <div>
-                    <span className="mb-2 block font-bold opacity-70">字体</span>
-                    <OptionList
-                        items={[{ key: 'serif', label: '衬线小说' }, { key: 'sans', label: '无衬线' }, { key: 'mono', label: '等宽终端' }]}
-                        activeKey={ui.fontFamily} onSelect={key => void updateUI({ fontFamily: key as EchoesUIProfile['fontFamily'] })}
-                        accent={ui.accent} borderColor={palette.border} mutedColor={palette.muted}
-                    />
-                </div>
-                <label className="block"><span className="mb-1 block font-bold opacity-70">文字大小</span><input type="range" min=".85" max="1.35" step=".05" value={ui.fontScale} onChange={e => void updateUI({ fontScale: Number(e.target.value) })} className="mt-3 w-full" /></label>
-                <div className="flex flex-col gap-2">
-                    <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>建议行动 <input type="checkbox" checked={ui.showSuggestions} onChange={e => void updateUI({ showSuggestions: e.target.checked })} /></label>
-                    <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>状态面板 <input type="checkbox" checked={ui.showStatus} onChange={e => void updateUI({ showStatus: e.target.checked })} /></label>
-                    <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>已知事实 <input type="checkbox" checked={ui.showFacts} onChange={e => void updateUI({ showFacts: e.target.checked })} /></label>
-                    <label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>源码切换 <input type="checkbox" checked={ui.showSourceToggle} onChange={e => void updateUI({ showSourceToggle: e.target.checked })} /></label>
-                </div>
-                <div>
-                    <span className="mb-2 block font-bold opacity-70">世界内词汇</span>
-                    <div className="flex flex-col gap-2">{(Object.keys(DEFAULT_LABELS) as Array<keyof typeof DEFAULT_LABELS>).map(key => <label key={key} className="block"><span className="mb-1 block text-[10px] opacity-55">{DEFAULT_LABELS[key]}</span><input value={ui.labels[key]} onChange={e => void updateUI({ labels: { [key]: e.target.value } as any })} className="w-full rounded-lg border bg-transparent px-2 py-1.5" style={{ borderColor: palette.border }} /></label>)}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-2">
+                <div className="mx-auto max-w-md">
+                    <div className="mb-6 flex items-center gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl" style={{ background: `${current.accent}22`, boxShadow: `0 0 24px ${current.accent}22` }}><CurrentIcon size={22} weight="duotone" style={{ color: current.accent }} /></div>
+                        <div><h1 className="text-lg font-bold leading-tight text-white">{current.label}</h1><p className="text-[11px] text-white/35">{createStep === 1 ? '定义你要进入的世界' : createStep === 2 ? '你是谁，谁与你同行（可选）' : createStep === 3 ? '游戏节奏与写作底层指令' : '界面质感与主题'}</p></div>
+                    </div>
+
+                    {createStep === 1 && <div className="animate-fade-in">
+                        <StepField label="世界名称"><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="例如：长安旧雪" className={inputCls} /></StepField>
+                        <StepField label="世界观 / 你想玩的故事" hint={`${draft.world.length} 字`}><textarea value={draft.world} onChange={e => setDraft({ ...draft, world: e.target.value })} rows={7} placeholder="例如：架空古代探案，没有超自然力量，节奏慢热，重视人物关系和逻辑推理……越具体，AI 越能贴合你的期待。" className={`${inputCls} resize-y leading-[1.7]`} /></StepField>
+                    </div>}
+
+                    {createStep === 2 && <div className="animate-fade-in">
+                        <StepField label="玩家身份" hint="可选，留空由 AI 生成"><textarea value={draft.identity} onChange={e => setDraft({ ...draft, identity: e.target.value })} rows={4} placeholder="你是谁？目标、背景、性格、秘密……" className={`${inputCls} resize-y leading-[1.7]`} /></StepField>
+                        <StepField label="主要人物 / 阵营" hint="可选"><textarea value={draft.cast} onChange={e => setDraft({ ...draft, cast: e.target.value })} rows={5} placeholder="可以写姓名、身份、性格、目标、关系；留空 AI 也会自然生成。" className={`${inputCls} resize-y leading-[1.7]`} /></StepField>
+                    </div>}
+
+                    {createStep === 3 && <div className="animate-fade-in">
+                        <StepField label="游戏档位"><PillPicker cols={2} value={draft.mode} onChange={mode => setDraft({ ...draft, mode })} options={(Object.keys(MODE_META) as EchoesMode[]).map(m => ({ key: m, label: MODE_META[m].label, desc: MODE_META[m].description }))} /></StepField>
+                        <StepField label="剧情质量"><PillPicker cols={3} value={draft.qualityMode} onChange={qualityMode => setDraft({ ...draft, qualityMode })} options={(Object.keys(QUALITY_META) as EchoesQualityMode[]).map(q => ({ key: q, label: QUALITY_META[q].label, desc: QUALITY_META[q].description }))} /></StepField>
+                        <StepField label="剧情排版倾向"><PillPicker cols={2} value={draft.formatting} onChange={formatting => setDraft({ ...draft, formatting })} options={[{ key: 'adaptive' as const, label: '自适应', desc: '按内容选择格式' }, { key: 'novel' as const, label: '小说优先', desc: '正文连续易读' }, { key: 'records' as const, label: '档案优先', desc: '世界内资料更丰富' }, { key: 'technical' as const, label: '技术记录', desc: '终端、数据更多' }]} /></StepField>
+
+                        <div className="mt-2 overflow-hidden rounded-3xl border border-white/[.08]" style={{ background: 'linear-gradient(160deg, rgba(192,132,252,.08), rgba(255,255,255,.02))' }}>
+                            <div className="flex items-center gap-2 border-b border-white/[.06] px-4 py-3"><PencilSimple size={15} className="text-purple-300" /><span className="text-[12.5px] font-bold text-white/85">写作指导</span><span className="ml-auto text-[9px] text-white/30">随时可在游玩中调整</span></div>
+                            <div className="px-4 py-4">
+                                <p className="mb-3 text-[10.5px] leading-relaxed text-white/40">这不是世界内容——是你直接对 AI 写作本体下的底层指令，角色感知不到。</p>
+                                <div className="space-y-2.5">
+                                    <input value={draftWritingGuide.style} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, style: e.target.value })} placeholder="写作方式，例如：写实细腻、意识流……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                    <input value={draftWritingGuide.tone} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, tone: e.target.value })} placeholder="语气/氛围，例如：压抑悬疑、轻松温馨……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                    <input value={draftWritingGuide.perspective} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, perspective: e.target.value })} placeholder="视角/人称，例如：第二人称……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <input type="number" min={0} value={draftWritingGuide.minWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, minWords: Number(e.target.value) || 0 })} placeholder="字数下限" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
+                                        <input type="number" min={0} value={draftWritingGuide.maxWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, maxWords: Number(e.target.value) || 0 })} placeholder="字数上限" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
+                                        <input type="number" min={1} max={40} value={draftWritingGuide.contextRounds} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, contextRounds: Number(e.target.value) || DEFAULT_WRITING_GUIDE.contextRounds })} placeholder="参考轮数" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
+                                    </div>
+                                    <textarea value={draftWritingGuide.authorInstructions} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, authorInstructions: e.target.value })} rows={3} placeholder="自由指令，直接对 AI 说：不要倒叙开场、节奏放慢……" className="w-full resize-y rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] leading-relaxed outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>}
+
+                    {createStep === 4 && <div className="animate-fade-in">
+                        <StepField label="布局"><PillPicker cols={2} value={draftUI.layout} onChange={layout => setDraftUI({ ...draftUI, layout })} options={(Object.keys(LAYOUT_META) as EchoesLayout[]).map(l => ({ key: l, label: LAYOUT_META[l] }))} /></StepField>
+                        <StepField label="主题">
+                            <div className="grid grid-cols-5 gap-2.5">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => setDraftUI({ ...draftUI, theme })} className="flex flex-col items-center gap-1.5" aria-label={theme}><span className="block h-11 w-11 rounded-2xl border-2 transition" style={{ background: THEME_META[theme].bg, borderColor: draftUI.theme === theme ? current.accent : 'rgba(255,255,255,.12)' }} />{draftUI.theme === theme && <Check size={11} weight="bold" style={{ color: current.accent }} />}</button>)}</div>
+                        </StepField>
+                        <div className="mt-2 rounded-2xl border border-white/[.08] bg-white/[.03] p-4">
+                            <p className="text-[10.5px] leading-relaxed text-white/40">进入世界后可以在设置里进一步调整字体、强调色、模块显隐，还能粘贴<span className="text-white/60">自定义 CSS</span> 完全接管样式，或导入/导出你的 UI 配置。</p>
+                        </div>
+                    </div>}
                 </div>
             </div>
-        </div>
-        <div className="h-[calc(var(--safe-bottom,0px)+1rem)]" />
-    </div>;
+
+            <div className="shrink-0 border-t border-white/[.06] px-5 pb-[calc(1rem+var(--safe-bottom,0px))] pt-3" style={{ background: 'rgba(13,14,19,.92)' }}>
+                <div className="mx-auto flex max-w-md gap-2.5">
+                    {createStep > 1 && <button onClick={() => setCreateStep(createStep - 1)} className="rounded-2xl border border-white/[.1] px-5 py-3.5 text-sm font-semibold text-white/60 transition hover:bg-white/[.06]">上一步</button>}
+                    {createStep < CREATE_STEPS.length
+                        ? <button onClick={() => setCreateStep(createStep + 1)} disabled={createStep === 1 && !canProceedFromStep1} className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl py-3.5 text-sm font-bold text-black transition disabled:opacity-30" style={{ background: current.accent }}>下一步<ArrowLeft size={15} className="rotate-180" /></button>
+                        : <button onClick={() => void createWorld()} disabled={generating} className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-emerald-400 py-3.5 text-sm font-bold text-black shadow-lg shadow-violet-500/20 disabled:opacity-50">{generating ? <><CircleNotch className="animate-spin" size={18} />正在生成开场……</> : <><Sparkle size={18} weight="fill" />生成世界并开始</>}</button>}
+                </div>
+            </div>
+        </div>;
+    };
+
+    const renderSettings = () => activeWorld && <div className="absolute inset-0 z-30 overflow-y-auto" style={{ background: `${palette.bg}f2`, color: palette.text, paddingTop: 'var(--safe-top)' }}><div className="mx-auto max-w-lg rounded-3xl border m-4 p-4 shadow-2xl" style={{ background: palette.panel, borderColor: palette.border }}><div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-bold"><GearSix size={18} />自定义 Echoes</h2><button onClick={() => setShowSettings(false)} className="rounded-lg px-2 py-1 text-xs opacity-60 hover:bg-black/5">完成</button></div><div className="space-y-4 text-xs">{renderExperienceSettings()}<div><span className="mb-2 block font-bold opacity-70">布局</span><div className="grid grid-cols-2 gap-2">{(Object.keys(LAYOUT_META) as EchoesLayout[]).map(layout => <button key={layout} onClick={() => void updateUI({ layout })} className={`rounded-xl border px-3 py-2 text-left ${ui.layout === layout ? 'ring-2' : ''}`} style={{ borderColor: ui.layout === layout ? ui.accent : palette.border }}>{LAYOUT_META[layout]}</button>)}</div></div><div><span className="mb-2 block font-bold opacity-70">主题</span><div className="grid grid-cols-5 gap-2">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => void updateUI({ theme })} className={`h-8 rounded-lg border ${ui.theme === theme ? 'ring-2' : ''}`} style={{ background: THEME_META[theme].bg, borderColor: ui.theme === theme ? ui.accent : palette.border }} aria-label={theme} />)}</div></div><label className="block"><span className="mb-1 block font-bold opacity-70">强调色</span><input type="color" value={ui.accent} onChange={e => void updateUI({ accent: e.target.value })} className="h-9 w-full rounded-lg border-0 bg-transparent" /></label><div className="grid grid-cols-2 gap-2"><label className="block"><span className="mb-1 block font-bold opacity-70">字体</span><select value={ui.fontFamily} onChange={e => void updateUI({ fontFamily: e.target.value as EchoesUIProfile['fontFamily'] })} className="w-full rounded-lg border bg-transparent p-2" style={{ borderColor: palette.border }}><option value="serif">衬线小说</option><option value="sans">无衬线</option><option value="mono">等宽终端</option></select></label><label className="block"><span className="mb-1 block font-bold opacity-70">文字大小</span><input type="range" min=".85" max="1.35" step=".05" value={ui.fontScale} onChange={e => void updateUI({ fontScale: Number(e.target.value) })} className="mt-3 w-full" /></label></div><div className="grid grid-cols-2 gap-2"><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>建议行动 <input type="checkbox" checked={ui.showSuggestions} onChange={e => void updateUI({ showSuggestions: e.target.checked })} /></label><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>状态面板 <input type="checkbox" checked={ui.showStatus} onChange={e => void updateUI({ showStatus: e.target.checked })} /></label><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>已知事实 <input type="checkbox" checked={ui.showFacts} onChange={e => void updateUI({ showFacts: e.target.checked })} /></label><label className="flex items-center justify-between rounded-lg border p-2" style={{ borderColor: palette.border }}>源码切换 <input type="checkbox" checked={ui.showSourceToggle} onChange={e => void updateUI({ showSourceToggle: e.target.checked })} /></label></div><div><span className="mb-2 block font-bold opacity-70">世界内词汇</span><div className="grid grid-cols-2 gap-2">{(Object.keys(DEFAULT_LABELS) as Array<keyof typeof DEFAULT_LABELS>).map(key => <label key={key} className="block"><span className="mb-1 block text-[10px] opacity-55">{DEFAULT_LABELS[key]}</span><input value={ui.labels[key]} onChange={e => void updateUI({ labels: { [key]: e.target.value } as any })} className="w-full rounded-lg border bg-transparent px-2 py-1.5" style={{ borderColor: palette.border }} /></label>)}</div></div><div className="border-t pt-4" style={{ borderColor: palette.border }}><span className="mb-2 block font-bold opacity-70">自定义 CSS（高级）</span><p className="mb-2 text-[10px] leading-relaxed opacity-50">注入到 .echoes-root 作用域，可以覆盖任意样式。留空则使用内置主题。</p><textarea value={ui.customCss || ''} onChange={e => void updateUI({ customCss: e.target.value })} rows={8} placeholder=".echoes-root { /* 你的 CSS */ }" className="w-full resize-y rounded-lg border bg-transparent px-2 py-2 font-mono text-[10px] leading-relaxed outline-none" style={{ borderColor: palette.border }} /><div className="mt-2 flex gap-2"><button onClick={() => { try { const blob = new Blob([JSON.stringify(ui, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `echoes-ui-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); addToast('UI 配置已导出', 'success'); } catch { addToast('导出失败', 'error'); } }} className="flex-1 rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导出 UI 配置</button><button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.onchange = async (e: any) => { try { const file = e.target?.files?.[0]; if (!file) return; const text = await file.text(); const imported = JSON.parse(text); await updateUI(imported); addToast('UI 配置已导入', 'success'); } catch { addToast('导入失败，请检查文件格式', 'error'); } }; input.click(); }} className="flex-1 rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导入 UI 配置</button></div></div></div></div><div className="h-[calc(var(--safe-bottom,0px)+1rem)]" /></div>;
 
     const renderInspector = () => activeWorld && <div className="absolute inset-0 z-20 overflow-y-auto" style={{ background: `${palette.bg}ee`, color: palette.text, paddingTop: 'var(--safe-top)' }}><div className="mx-auto max-w-lg rounded-3xl border m-4 p-4" style={{ background: palette.panel, borderColor: palette.border }}><div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-bold"><Eye size={18} />世界检查</h2><button onClick={() => setShowInspector(false)} className="rounded-lg px-2 py-1 text-xs opacity-60">关闭</button></div><div className="space-y-4 text-xs"><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>当前状态</h3><pre className="overflow-auto rounded-xl bg-black/5 p-3 text-[11px] leading-relaxed">{JSON.stringify(activeWorld.state, null, 2)}</pre></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>导演账本</h3><div className="space-y-1" style={{ color: palette.muted }}><p><span className="font-semibold" style={{ color: palette.text }}>当前目标：</span>{activeWorld.director.currentGoal || '—'}</p>{activeWorld.director.activeThreads.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>活跃线索：</span>{activeWorld.director.activeThreads.join('；')}</p>}{activeWorld.director.unresolvedQuestions.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>未解问题：</span>{activeWorld.director.unresolvedQuestions.join('；')}</p>}<p><span className="font-semibold" style={{ color: palette.text }}>剧情压力：</span>{activeWorld.director.pressure} / 100</p></div></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>已知事实</h3><ul className="space-y-1">{activeWorld.knownFacts.length ? activeWorld.knownFacts.map((fact, i) => <li key={i}>· {fact}</li>) : <li className="opacity-50">尚未记录</li>}</ul></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>已锁定事实（幕后）</h3><ul className="space-y-1 opacity-75">{activeWorld.hardFacts.length ? activeWorld.hardFacts.map((fact, i) => <li key={i}>· {fact}</li>) : <li className="opacity-50">尚未锁定</li>}</ul></section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>运行信息</h3><p>档位：{modeLabel(activeWorld.mode)}　·　回合：{activeWorld.turns.length}</p><p className="mt-1">质量：{QUALITY_META[activeWorld.qualityMode || 'maximum'].label}　·　排版：{activeWorld.formattingPreference}</p>{activeWorld.continuitySummary && <div className="mt-2"><span className="font-semibold" style={{ color: palette.text }}>连贯摘要：</span><p className="mt-1 opacity-75 leading-relaxed">{activeWorld.continuitySummary.slice(0, 300)}{activeWorld.continuitySummary.length > 300 ? '…' : ''}</p></div>}</section><section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>写作指导（作者层）</h3><pre className="overflow-auto rounded-xl bg-black/5 p-3 text-[11px] leading-relaxed whitespace-pre-wrap">{buildWritingGuideSection(activeWorld.writingGuide)}</pre></section></div></div><div className="h-[calc(var(--safe-bottom,0px)+1rem)]" /></div>;
 
@@ -960,7 +943,8 @@ const EchoesApp: React.FC = () => {
     if (!activeWorld) return renderLobby();
 
     const lastTurn = activeWorld.turns[activeWorld.turns.length - 1];
-    return <div className="relative flex h-full min-h-0 flex-col" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
+    return <div className="echoes-root relative flex h-full min-h-0 flex-col" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
+        {ui.customCss && <style dangerouslySetInnerHTML={{ __html: ui.customCss }} />}
         <header className="z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ background: `${palette.panel}e8`, borderColor: palette.border }}><button onClick={() => { setView('lobby'); setActiveWorld(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5"><ArrowLeft size={19} /></button><div className="min-w-0 flex-1"><h1 className="truncate text-sm font-bold">{activeWorld.title}</h1><div className="mt-0.5 flex gap-2 text-[10px]" style={{ color: palette.muted }}><span>{activeWorld.state.chapter}</span><span>·</span><span>{activeWorld.state.location}</span></div></div><button onClick={() => setShowInspector(true)} className="rounded-xl p-2 opacity-65 hover:bg-black/5" aria-label="世界检查"><Eye size={18} /></button><button onClick={() => setShowSettings(true)} className="rounded-xl p-2 opacity-65 hover:bg-black/5" aria-label="自定义界面"><GearSix size={18} /></button></header>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4" style={{ maxWidth: activeWorld.ui.layout === 'terminal' ? 900 : 760, width: '100%', margin: '0 auto' }}>
             {ui.layout !== 'minimal' && <div className="sticky top-0 z-[1] -mx-4 mb-4 flex items-center gap-2 border-b px-4 py-2 text-[10px]" style={{ background: `${palette.bg}e8`, borderColor: palette.border, color: palette.muted }}><span className="inline-flex items-center gap-1"><MapPin size={12} />{ui.labels.location}：{activeWorld.state.location}</span><span className="ml-auto inline-flex items-center gap-1"><Archive size={12} />{activeWorld.turns.length} 回合</span></div>}
