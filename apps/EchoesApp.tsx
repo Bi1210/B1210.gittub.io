@@ -451,15 +451,23 @@ const EchoesApp: React.FC = () => {
     // React 状态更新有一个渲染间隔；用 ref 拦住同一帧内的重复点击，避免并发生成覆盖存档。
     const generatingRef = useRef(false);
 
+    // addToast 在 OSContext 里每次渲染都会拿到新的函数引用（未用 useCallback 包裹）。
+    // 如果直接把它放进 useCallback/useEffect 依赖数组，会导致 loadWorlds 在外部任意状态变化时
+    // 被重新创建，进而反复触发 setLoading(true) -> 请求 -> setLoading(false)，
+    // 表现为大厅页面的加载图标一直闪烁、甚至输入框在打字时被整体重渲染打断。
+    // 用 ref 拿到最新的 addToast，同时让 loadWorlds 的引用保持稳定，只在组件挂载时读一次存档。
+    const addToastRef = useRef(addToast);
+    addToastRef.current = addToast;
+
     const loadWorlds = useCallback(async () => {
         setLoading(true);
         try {
             const list = await DB.getAllEchoesWorlds();
             setWorlds(list.map(normalizeWorld).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt));
         } catch (error: any) {
-            addToast(`Echoes 存档读取失败：${error?.message || '未知错误'}`, 'error');
+            addToastRef.current(`Echoes 存档读取失败：${error?.message || '未知错误'}`, 'error');
         } finally { setLoading(false); }
-    }, [addToast]);
+    }, []);
 
     useEffect(() => { void loadWorlds(); }, [loadWorlds]);
 
