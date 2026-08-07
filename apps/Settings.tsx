@@ -33,8 +33,8 @@ import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
-import { pullLatestGameResources, getUpdateStatus, clearUpdateStatus, type UpdateStatus } from '../utils/gameUpdate';
-import { CURRENT_VERSION, VERSION_DATE, hasNewVersion, getLastSeenVersion, setLastSeenVersion, getVersionsSince, VERSION_LOGS, type VersionLog } from '../utils/version';
+import { pullLatestGameResources } from '../utils/gameUpdate';
+import { CURRENT_VERSION, VERSION_DATE, VERSION_LOGS } from '../utils/version';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -568,10 +568,9 @@ const Settings: React.FC = () => {
   const [gameUpdateBusy, setGameUpdateBusy] = useState(false);
   const [gameUpdateStatus, setGameUpdateStatus] = useState('');
   const [showWhatsNew, setShowWhatsNew] = useState(false);
-  const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
   const [showUpdateProgress, setShowUpdateProgress] = useState(false);
-  const [updateProgressStatus, setUpdateProgressStatus] = useState<'checking' | 'downloading' | 'success' | 'failed'>('checking');
-  const [newVersions, setNewVersions] = useState<VersionLog[]>([]);
+  const [updateProgressStatus, setUpdateProgressStatus] = useState<'checking' | 'downloading' | 'failed'>('checking');
+  const [newVersions, setNewVersions] = useState(VERSION_LOGS);
 
   // 模型选择 Modal 的过滤 + 公共前缀（memo 掉，避免每次 Settings 重渲染都重算）
   const modelPickerView = useMemo(() => {
@@ -612,8 +611,23 @@ const Settings: React.FC = () => {
           setUpdateProgressStatus('downloading');
           setGameUpdateStatus('正在清理缓存并下载最新资源…');
           
-          await pullLatestGameResources();
-          // 更新成功会自动刷新，不会走到这里
+          const result = await pullLatestGameResources((phase) => {
+              if (phase === 'checking') {
+                  setUpdateProgressStatus('checking');
+                  setGameUpdateStatus('正在检查最新版本…');
+              } else if (phase === 'downloading') {
+                  setUpdateProgressStatus('downloading');
+                  setGameUpdateStatus('正在清理缓存并下载最新资源…');
+              }
+          });
+          if (!result.updated) {
+              setGameUpdateBusy(false);
+              setShowUpdateProgress(false);
+              setUpdateProgressStatus('checking');
+              setGameUpdateStatus('当前已经是最新版本');
+              addToast('当前已经是最新版本', 'info');
+          }
+          // 有更新时工具会在成功后自动重载，不会继续渲染当前设置页。
       } catch (error: any) {
           setUpdateProgressStatus('failed');
           setGameUpdateBusy(false);
@@ -627,36 +641,6 @@ const Settings: React.FC = () => {
           }, 3000);
       }
   };
-
-  // 检查更新完成状态：页面加载时检查是否刚完成更新，是则弹出欢迎弹窗
-  useEffect(() => {
-      const updateStatus = getUpdateStatus();
-      if (updateStatus?.status === 'success' && updateStatus.timestamp) {
-          // 5秒内的更新算刚完成
-          const isRecent = Date.now() - updateStatus.timestamp < 5000;
-          if (isRecent) {
-              clearUpdateStatus();
-              setNewVersions(VERSION_LOGS.slice(0, 1));
-              setShowWhatsNew(true);
-              trackEvent('更新完成欢迎弹窗', { version: CURRENT_VERSION });
-          } else {
-              clearUpdateStatus();
-          }
-      }
-  }, []);
-
-  // 版本更新检测：打开设置页时检查是否有新版本，有则弹窗提示用户更新
-  useEffect(() => {
-      if (hasNewVersion()) {
-          const lastSeen = getLastSeenVersion();
-          const newLogs = getVersionsSince(lastSeen);
-          if (newLogs.length > 0) {
-              setNewVersions(newLogs);
-              setShowUpdatePrompt(true);
-              trackEvent('检测到新版本', { from: lastSeen || 'first-time', to: CURRENT_VERSION });
-          }
-      }
-  }, []);
 
   const doEnablePushAccelerator = async () => {
       if (ppBusy) return;
@@ -1569,19 +1553,6 @@ const Settings: React.FC = () => {
           setLuckinTesting(false);
       }
   };
-
-  // 版本更新检测：打开设置页时检查是否有新版本，有则弹窗提示用户更新
-  useEffect(() => {
-      if (hasNewVersion()) {
-          const lastSeen = getLastSeenVersion();
-          const newLogs = getVersionsSince(lastSeen);
-          if (newLogs.length > 0) {
-              setNewVersions(newLogs);
-              setShowUpdatePrompt(true);
-              trackEvent('检测到新版本', { from: lastSeen || 'first-time', to: CURRENT_VERSION });
-          }
-      }
-  }, []);
 
   return (
     <div className="h-full w-full bg-slate-50/50 flex flex-col font-light relative">
@@ -2816,7 +2787,7 @@ const Settings: React.FC = () => {
                     </svg>
                 </div>
             }
-            badge={hasNewVersion() && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[9px] text-white font-bold">NEW</span>}
+
         >
             <div className="space-y-3">
                 <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
@@ -2914,87 +2885,12 @@ const Settings: React.FC = () => {
           </div>
       </Modal>
 
-      {/* 发现新版本提示弹窗 */}
-      <Modal
-          isOpen={showUpdatePrompt}
-          title="🎉 发现新版本"
-          onClose={() => {
-              setShowUpdatePrompt(false);
-              setLastSeenVersion(CURRENT_VERSION);
-              trackEvent('关闭更新提示弹窗', { action: 'dismiss' });
-          }}
-          footer={
-              <div className="flex gap-2 w-full">
-                  <button
-                      type="button"
-                      onClick={() => {
-                          setShowUpdatePrompt(false);
-                          setLastSeenVersion(CURRENT_VERSION);
-                          trackEvent('关闭更新提示弹窗', { action: 'later' });
-                      }}
-                      className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl active:scale-95 transition-transform"
-                  >
-                      稍后再说
-                  </button>
-                  <button
-                      type="button"
-                      onClick={() => {
-                          setShowUpdatePrompt(false);
-                          setLastSeenVersion(CURRENT_VERSION);
-                          trackEvent('从更新提示开始更新', { version: CURRENT_VERSION });
-                          void handlePullGameUpdate();
-                      }}
-                      className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-2xl shadow-sm active:scale-95 transition-transform"
-                  >
-                      立即更新
-                  </button>
-              </div>
-          }
-      >
-          <div className="space-y-4">
-              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                      <span className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white">
-                          v{CURRENT_VERSION}
-                      </span>
-                      <span className="text-[10px] text-emerald-600">{VERSION_DATE}</span>
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-700 mb-2">{newVersions[0]?.title}</h3>
-                  <ul className="space-y-1.5">
-                      {newVersions[0]?.changes.slice(0, 3).map((change, i) => (
-                          <li key={i} className="flex gap-2 text-xs leading-relaxed text-slate-600">
-                              <span className="text-emerald-500 shrink-0">•</span>
-                              <span>{change}</span>
-                          </li>
-                      ))}
-                      {(newVersions[0]?.changes.length || 0) > 3 && (
-                          <li className="text-[10px] text-slate-400 pl-4">...还有 {(newVersions[0]?.changes.length || 0) - 3} 项更新</li>
-                      )}
-                  </ul>
-              </div>
-              <button
-                  type="button"
-                  onClick={() => {
-                      setShowUpdatePrompt(false);
-                      setShowWhatsNew(true);
-                  }}
-                  className="w-full text-xs text-emerald-600 hover:text-emerald-700 py-2"
-              >
-                  查看完整更新内容 →
-              </button>
-              <p className="text-[10px] text-slate-400 leading-relaxed">
-                  更新只清理前端缓存，不会删除世界存档、聊天记录、API 配置等本地数据。
-              </p>
-          </div>
-      </Modal>
-
       {/* 更新日志弹窗 */}
       <Modal
           isOpen={showWhatsNew}
           title="🎉 游戏已更新"
           onClose={() => {
               setShowWhatsNew(false);
-              setLastSeenVersion(CURRENT_VERSION);
               trackEvent('关闭更新日志弹窗', { version: CURRENT_VERSION });
           }}
           footer={
@@ -3002,7 +2898,6 @@ const Settings: React.FC = () => {
                   type="button"
                   onClick={() => {
                       setShowWhatsNew(false);
-                      setLastSeenVersion(CURRENT_VERSION);
                       trackEvent('确认查看更新日志', { version: CURRENT_VERSION });
                   }}
                   className="w-full py-3 bg-emerald-600 text-white font-bold rounded-2xl shadow-sm active:scale-95 transition-transform"
