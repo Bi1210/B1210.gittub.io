@@ -3324,6 +3324,27 @@ export interface EchoesLabels {
     location: string;
 }
 
+export interface EchoesWritingGuide {
+    /** 写作方式，如：写实、意识流、诗意、简洁白描、新海诚式 */
+    style: string;
+    /** 语气/氛围，如：压抑悬疑、轻松温馨、紧张刺激、冷感克制 */
+    tone: string;
+    /** 视角与人称，如：第二人称视角、第三人称有限视角、第一人称 */
+    perspective: string;
+    /** 单轮正文字数下限（0 = 不限制） */
+    minWords: number;
+    /** 单轮正文字数上限（0 = 不限制） */
+    maxWords: number;
+    /** 参考的历史轮数（给 AI 的上下文窗口，0 = 使用默认 8 轮） */
+    contextRounds: number;
+    /**
+     * 作者直接指令——这是你作为"作者"越过剧情对 AI 写作本体说的话。
+     * AI 看到这段时会以"编辑/作者"身份理解，而不是把它当成世界内容。
+     * 可以写：不要用某种句式、参考某位作家的风格、下一章要出现某个主题、这段要写得慢一点等。
+     */
+    authorInstructions: string;
+}
+
 export interface EchoesUIProfile {
     layout: EchoesLayout;
     theme: EchoesTheme;
@@ -3331,11 +3352,30 @@ export interface EchoesUIProfile {
     fontFamily: 'serif' | 'sans' | 'mono';
     fontScale: number;
     lineHeight: number;
+    /** 自定义颜色覆盖，空字符串 = 跟随内置主题 */
+    customBg?: string;
+    customPanel?: string;
+    customText?: string;
+    customMuted?: string;
+    customBorder?: string;
+    /** 自定义 CSS，注入到 .echoes-root 作用域，支持覆盖任意样式 */
+    customCss?: string;
     showSuggestions: boolean;
     showStatus: boolean;
     showFacts: boolean;
     showSourceToggle: boolean;
     labels: EchoesLabels;
+}
+
+/**
+ * Echoes 独立主题包，可命名、导出为 JSON、从 JSON 导入。
+ * 与 EchoesUIProfile 不同：主题是可分享的独立对象，不依附于某个世界。
+ */
+export interface EchoesThemePreset {
+    id: string;
+    name: string;
+    createdAt: number;
+    ui: EchoesUIProfile;
 }
 
 export interface EchoesState {
@@ -3408,6 +3448,8 @@ export interface EchoesWorld {
     initialContinuitySummary?: string;
     state: EchoesState;
     director: EchoesDirectorState;
+    /** 写作指导，注入到每轮 AI 提示词。 */
+    writingGuide: EchoesWritingGuide;
     /** 长篇压缩记忆；只作为辅助上下文，不能覆盖硬事实。 */
     continuitySummary: string;
     hardFacts: string[];
