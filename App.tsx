@@ -11,6 +11,7 @@ import WorldBroadcast from './components/WorldBroadcast';
 import ChatBroadcast from './components/ChatBroadcast';
 import { isIOSStandaloneWebApp } from './utils/iosStandalone';
 import { installDevDebugLifecycleCapture } from './utils/devDebug';
+import UpdateCenter from './components/UpdateCenter';
 
 const App: React.FC = () => {
   React.useEffect(() => {
@@ -47,6 +48,7 @@ const App: React.FC = () => {
         </div>
       </div>
       <BuildBadge />
+      <UpdateCenter />
       <DevDebugPanel />
       <VRBroadcast />
       <WorldBroadcast />
