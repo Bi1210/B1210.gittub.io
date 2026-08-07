@@ -3107,6 +3107,7 @@ const Chat: React.FC = () => {
                 chromeStyle={osTheme.chatChromeStyle}
                 hideBuffs={osTheme.chatHideHeaderBuffs}
                 acnh={acnh}
+                scrollTarget={scrollRef}
              />
 
             {/* 认知消化结果弹窗 — 全屏玻璃拟态 */}

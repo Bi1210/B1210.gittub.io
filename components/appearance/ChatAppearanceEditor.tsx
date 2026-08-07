@@ -225,6 +225,7 @@ const choices = {
         { value: 'flat', label: '平面', desc: '更干净利落' },
         { value: 'floating', label: '悬浮', desc: '层次更明显' },
         { value: 'pixel', label: '像素', desc: '硬边伪窗口' },
+        { value: 'liquidglass', label: '液态玻璃', desc: 'iOS 26 风格的动态玻璃 Chrome' },
     ],
     background: [
         { value: 'plain', label: '纯净' },
@@ -240,6 +241,7 @@ const choices = {
         { value: 'telegram', label: 'Telegram' },
         { value: 'discord', label: 'Discord' },
         { value: 'pixel', label: '像素窗' },
+        { value: 'liquidglass', label: '液态玻璃' },
     ],
     bubble: [
         { value: 'modern', label: '现代' },
@@ -258,6 +260,7 @@ const choices = {
         { value: 'telegram', label: 'Telegram' },
         { value: 'discord', label: 'Discord' },
         { value: 'pixel', label: '像素窗' },
+        { value: 'liquidglass', label: '液态玻璃' },
     ],
     align: [
         { value: 'left', label: '左对齐' },

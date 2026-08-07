@@ -744,6 +744,7 @@ const EchoesApp: React.FC = () => {
     // 滚动位置记忆：离开故事页时记录，回来时恢复（避免切 Tab 又切回来时弹到顶部）
     const scrollPosRef = useRef<number>(0);
     const storyContainerRef = useRef<HTMLDivElement | null>(null);
+    const [liquidGlassShrunk, setLiquidGlassShrunk] = useState(false);
 
     // addToast 在 OSContext 里每次渲染都会拿到新的函数引用（未用 useCallback 包裹）。
     // 如果直接把它放进 useCallback/useEffect 依赖数组，会导致 loadWorlds 在外部任意状态变化时
@@ -1112,6 +1113,8 @@ const EchoesApp: React.FC = () => {
     // 主题也必须回退到 paper，绝不能把 undefined 传给 palette.panel。
     const ui = activeWorld ? normalizeUIProfile(activeWorld.ui) : DEFAULT_UI;
     const palette = THEME_META[ui.theme] || THEME_META.paper;
+    // Echoes 自己的世界主题仍由世界存档控制；全局液态玻璃只改 Chrome，不覆盖正文配色。
+    const globalLiquidGlass = typeof document !== 'undefined' && document.documentElement.dataset.skin === 'liquidglass';
     const enabledFormats = activeWorld?.allowedFormats?.length ? activeWorld.allowedFormats : DEFAULT_FORMATS;
     const textStyle: React.CSSProperties = { fontFamily: ui.fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : ui.fontFamily === 'sans' ? 'ui-sans-serif, system-ui, sans-serif' : 'Georgia, "Noto Serif SC", serif', fontSize: `${ui.fontScale}em`, lineHeight: ui.lineHeight };
 
@@ -1392,7 +1395,7 @@ const EchoesApp: React.FC = () => {
         <button onClick={() => setShowRawState(v => !v)} className="flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[11px] opacity-65" style={{ borderColor: palette.border }}><span>查看原始状态数据</span><CaretDown size={14} style={{ transform: showRawState ? 'rotate(180deg)' : undefined }} /></button>{showRawState && <pre className="max-h-80 overflow-auto rounded-xl p-3 font-mono text-[10px] leading-relaxed" style={{ background: `${palette.panel}b8` }}>{JSON.stringify(activeWorld.state, null, 2)}</pre>}
     </div>;
 
-    const actionDock = activeTab === 'story' && <div className="shrink-0 border-t px-3 pb-1.5 pt-1.5" style={{ background: `${palette.panel}f8`, borderColor: palette.border }}>
+    const actionDock = activeTab === 'story' && <div className={`shrink-0 border-t px-3 pb-1.5 pt-1.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[24px] ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f8`, borderColor: palette.border }}>
         <div className="mx-auto max-w-2xl">
             {ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating && <div className="mb-1.5 space-y-1">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} onClick={() => void playAction(suggestion)} className="flex w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06` }}><span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: `${ui.accent}16`, color: ui.accent }}>{i + 1}</span><span className="leading-snug">{suggestion}</span></button>)}</div>}
             <div className="flex items-end gap-1.5"><textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void playAction(input); } }} rows={1} disabled={generating} placeholder={activeWorld.mode === 'reader' ? '写下你想做的事，或让世界继续……' : '输入你的行动……'} className="min-h-[36px] flex-1 resize-none rounded-xl border bg-transparent px-2.5 py-2 text-[13px] outline-none placeholder:opacity-35" style={{ borderColor: palette.border }} /><button onClick={() => void playAction(input)} disabled={generating || !input.trim()} className="rounded-xl p-2 text-white shadow-sm disabled:opacity-30" style={{ background: ui.accent }}><Sparkle size={16} weight="fill" /></button></div>
@@ -1403,7 +1406,7 @@ const EchoesApp: React.FC = () => {
     return <div className="echoes-root relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
         {ui.customCss && <style dangerouslySetInnerHTML={{ __html: ui.customCss }} />}
         <div className="pointer-events-none absolute inset-0" style={{ background: atmosphereStyle }} />
-        <header className="relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ background: `${palette.panel}e6`, borderColor: palette.border }}>
+        <header className={`relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-b-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}e6`, borderColor: palette.border }}>
             <button onClick={() => { setView('lobby'); setActiveWorld(null); setActiveTab('story'); setFreshTurnId(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="返回世界列表"><ArrowLeft size={19} /></button>
             <div className="min-w-0 flex-1"><p className="truncate text-[9px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>ECHOES · {modeLabel(activeWorld.mode)}</p><h1 className="truncate text-[14px] font-bold">{activeWorld.title}</h1></div>
             <button onClick={() => setShowWritingGuideSheet(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="写作指导"><PencilSimple size={17} /></button>
@@ -1418,13 +1421,14 @@ const EchoesApp: React.FC = () => {
             onScroll={() => {
                 if (activeTab === 'story' && storyContainerRef.current) {
                     scrollPosRef.current = storyContainerRef.current.scrollTop;
+                    if (globalLiquidGlass) setLiquidGlassShrunk(storyContainerRef.current.scrollTop > 18);
                 }
             }}
         >
             {activeTab === 'story' ? storyView : activeTab === 'relations' ? relationsView : statusView}
         </main>
         {actionDock}
-        <nav className="relative z-10 flex shrink-0 items-stretch border-t pb-[var(--safe-bottom)]" style={{ background: `${palette.panel}f7`, borderColor: palette.border }}>
+        <nav className={`relative z-10 flex shrink-0 items-stretch border-t pb-[var(--safe-bottom)] ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f7`, borderColor: palette.border }}>
             {tabItems.map(tab => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.key;

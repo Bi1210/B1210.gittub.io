@@ -914,7 +914,8 @@ const Launcher: React.FC = () => {
 
   const contentColor = theme.contentColor || '#ffffff';
   const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：Dock 换奶油木质底
-  const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
+  const liquidGlass = theme.skin === 'liquidglass';
+  const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && theme.skin !== 'liquidglass' && isPaperWallpaper(theme.wallpaper);
   // 已迁移 App 外壳已收回到可见 viewport 底边，dock 仅需自留视觉间距，无需再 + safe-bottom
   // （否则会比 home 条上方多让 34px，dock 看起来悬空）。
   const launcherBottomInset = '1.25rem';
@@ -934,7 +935,7 @@ const Launcher: React.FC = () => {
 
   return (
     <div
-      className="h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none"
+      className={`h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none ${liquidGlass ? 'sully-liquidglass-launcher' : ''}`}
       onPointerDown={handleLayoutPointerDown}
       onPointerMove={handleLayoutPointerMove}
       onPointerUp={finishLayoutPointer}
@@ -1167,7 +1168,7 @@ const Launcher: React.FC = () => {
            style={{ paddingBottom: launcherBottomInset }}
       >
            <div
-             className={`rounded-[1.75rem] px-4 py-3 flex gap-3 sm:gap-6 items-center mx-auto max-w-full justify-between overflow-x-auto no-scrollbar transform-gpu ${acnh || paper ? '' : 'bg-white/30 border border-white/25 shadow-[0_8px_40px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.08)]'}`}
+             className={`rounded-[1.75rem] px-4 py-3 flex gap-3 sm:gap-6 items-center mx-auto max-w-full justify-between overflow-x-auto no-scrollbar transform-gpu ${liquidGlass ? 'sully-lg-pill sully-lg-chrome' : acnh || paper ? '' : 'bg-white/30 border border-white/25 shadow-[0_8px_40px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.08)]'}`}
              style={acnh ? { background: 'transparent' } : paper ? {
                background: 'rgba(224,221,215,0.42)',
                border: '1px solid rgba(91,72,51,0.07)',

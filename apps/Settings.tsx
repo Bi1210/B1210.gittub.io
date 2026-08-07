@@ -1555,7 +1555,7 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="h-full w-full bg-slate-50/50 flex flex-col font-light relative">
+    <div className={`h-full w-full bg-slate-50/50 flex flex-col font-light relative ${typeof document !== 'undefined' && document.documentElement.dataset.skin === 'liquidglass' ? 'sully-liquidglass-settings' : ''}`}>
 
       {/* GLOBAL PROGRESS OVERLAY */}
       {sysOperation.status === 'processing' && (

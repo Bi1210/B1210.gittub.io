@@ -102,7 +102,7 @@ export interface OSTheme {
   /** 桌面整体皮肤。'animalcrossing' = 动森风格（NookPhone 彩色圆角图标 + 暖色界面）；
    *  'mobilegame' = 二次元手游首页风格（角色卡 + 等级经验条 + 货币栏 + 网格卡 + 罗盘 dock）；
    *  'tamagotchi' = 电子宠物养成机（桌面即角色的小屋舞台 + 四颗糖果实体键）。默认 'default'。 */
-  skin?: 'default' | 'animalcrossing' | 'mobilegame' | 'tamagotchi';
+  skin?: 'default' | 'animalcrossing' | 'mobilegame' | 'tamagotchi' | 'liquidglass';
   /** 默认桌面的视觉版本：纸感是现行默认，nostalgia 是用户主动选择的最初粉绿白玻璃界面。 */
   desktopVariant?: 'paper' | 'nostalgia';
   /** 动森皮肤下，聊天 App 是否也跟随换成动森界面。默认 true（undefined 视为 true）。关掉则聊天保持原样式。 */
@@ -156,9 +156,9 @@ export interface OSTheme {
   chatBubbleStyle?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
   chatMessageSpacing?: 'compact' | 'default' | 'spacious';
   chatShowTimestamp?: 'always' | 'hover' | 'never';
-  chatHeaderStyle?: 'default' | 'minimal' | 'gradient' | 'wechat' | 'telegram' | 'discord' | 'pixel';
-  chatInputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
-  chatChromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
+  chatHeaderStyle?: 'default' | 'minimal' | 'gradient' | 'wechat' | 'telegram' | 'discord' | 'pixel' | 'liquidglass';
+  chatInputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel' | 'liquidglass';
+  chatChromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel' | 'liquidglass';
   chatBackgroundStyle?: 'plain' | 'grid' | 'paper' | 'mesh';
   chatHeaderAlign?: 'left' | 'center';
   chatHeaderDensity?: 'compact' | 'default' | 'airy';

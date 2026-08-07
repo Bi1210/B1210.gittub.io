@@ -103,6 +103,9 @@ const ACNH_WALLPAPER = 'linear-gradient(180deg, #F8F4E8 0%, #F3EFDD 58%, #E6EECE
 const MOBILEGAME_WALLPAPER = 'radial-gradient(95% 55% at 85% 0%, #fdeef7 0%, transparent 50%), radial-gradient(85% 55% at 6% 10%, #f6f2fc 0%, transparent 55%), linear-gradient(180deg, #fdfbff 0%, #f9f6fd 55%, #f4f0fa 100%)';
 // 电子宠物主题壁纸：薰衣草奶油（照抄参考稿——柔紫底衬奶油卡片与紫描边）。
 const TAMAGOTCHI_WALLPAPER = 'radial-gradient(85% 50% at 80% 0%, #e6dcf8 0%, transparent 55%), radial-gradient(75% 45% at 12% 10%, #f4edfb 0%, transparent 55%), linear-gradient(180deg, #ded4f4 0%, #d6cbf0 55%, #cfc3ec 100%)';
+// 液态玻璃主题壁纸：深色多彩光斑渗透底——玻璃层的通透/折射效果依赖背景色透出来晕染，
+// 纯白或纯色背景反而看不出液态玻璃质感，所以选深底 + 多组柔光斑模拟 iOS 26 系统壁纸的氛围光。
+const LIQUIDGLASS_WALLPAPER = 'radial-gradient(60% 45% at 15% 8%, rgba(94,143,255,0.55) 0%, transparent 60%), radial-gradient(55% 40% at 88% 12%, rgba(255,138,196,0.45) 0%, transparent 60%), radial-gradient(65% 55% at 50% 92%, rgba(120,90,255,0.4) 0%, transparent 62%), radial-gradient(50% 40% at 92% 85%, rgba(94,229,255,0.35) 0%, transparent 58%), linear-gradient(160deg, #0b0c14 0%, #14121f 45%, #0d1018 100%)';
 
 type DesktopSkinOption = { id: string; name: string; desc: string; swatch: string; config: Partial<OSTheme> };
 
@@ -159,6 +162,25 @@ const DESKTOP_SKINS: DesktopSkinOption[] = [
       chatHeaderStyle: 'default', chatInputStyle: 'rounded',
       chatChromeStyle: 'soft', chatBackgroundStyle: 'paper',
       chatShowTimestamp: 'always',
+    },
+  },
+  {
+    id: 'liquidglass',
+    name: '液态玻璃',
+    desc: 'iOS 26 风格 · 毛玻璃材质 · 深色氛围光 · CSS 模拟，非系统原生渲染',
+    swatch: 'linear-gradient(160deg,#0b0c14 0%,#3a5fd9 35%,#e879b8 70%,#0d1018 100%)',
+    config: {
+      skin: 'liquidglass',
+      desktopVariant: 'paper',
+      hue: 225, saturation: 60, lightness: 62,
+      contentColor: '#ffffff',
+      wallpaper: LIQUIDGLASS_WALLPAPER,
+      // 不强制隐藏状态栏：iOS PWA 自动走平台默认的真实状态栏，普通浏览器仍保留虚拟状态栏。
+      chatAvatarShape: 'circle', chatAvatarSize: 'medium',
+      chatBubbleStyle: 'ios', chatMessageSpacing: 'default',
+      chatHeaderStyle: 'liquidglass', chatInputStyle: 'liquidglass',
+      chatChromeStyle: 'liquidglass', chatBackgroundStyle: 'plain',
+      chatShowTimestamp: 'hover',
     },
   },
   {

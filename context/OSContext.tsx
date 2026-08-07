@@ -1619,6 +1619,31 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
       // 桌面皮肤：写到 <html data-skin>，供全局 CSS（index.html）与组件读取。
       root.dataset.skin = theme.skin || 'default';
+      // 液态玻璃只在需要时降低模糊半径：低性能设备、用户开启省流量或低电量时自动降级，
+      // 不影响其他主题，也不监听高频事件。
+      const nav = navigator as Navigator & { connection?: { saveData?: boolean }; getBattery?: () => Promise<{ level: number; addEventListener?: (type: string, fn: () => void) => void }> };
+      const lite = theme.skin === 'liquidglass' && (
+          (typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency <= 4) ||
+          nav.connection?.saveData === true
+      );
+      root.classList.toggle('sully-lg-lite', lite);
+      let batteryCleanup: (() => void) | undefined;
+      if (theme.skin === 'liquidglass' && nav.getBattery) {
+          void nav.getBattery().then(battery => {
+              const updateLite = () => root.classList.toggle('sully-lg-lite', lite || battery.level <= 0.2);
+              updateLite();
+              const listener = battery.addEventListener;
+              listener?.call(battery, 'levelchange', updateLite);
+              batteryCleanup = () => {
+                  const remove = (battery as unknown as { removeEventListener?: (type: string, fn: () => void) => void }).removeEventListener;
+                  remove?.call(battery, 'levelchange', updateLite);
+              };
+          }).catch(() => { /* Battery API 不可用时保持默认 */ });
+      }
+      return () => {
+          batteryCleanup?.();
+          root.classList.remove('sully-lg-lite');
+      };
   }, [theme]);
 
   // --- Update: Handle Scheduled Messages with Unread Flags & Web Notifications ---

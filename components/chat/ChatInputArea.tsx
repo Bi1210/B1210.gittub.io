@@ -54,9 +54,9 @@ interface ChatInputAreaProps {
     // 思考过程展示（会话级）
     showThinkingChain?: boolean;
     // Input style
-    inputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
+    inputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel' | 'liquidglass';
     sendButtonStyle?: 'circle' | 'pill' | 'minimal';
-    chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
+    chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel' | 'liquidglass';
     /** 动森彩蛋模式：输入栏换成木质草绿圆角。 */
     acnh?: boolean;
 }
@@ -297,9 +297,12 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     }, [emojis]);
 
     const isDiscordStyle = inputStyle === 'discord';
+    const isLiquidGlassStyle = inputStyle === 'liquidglass' || chromeStyle === 'liquidglass';
     const isPixelStyle = inputStyle === 'pixel' || chromeStyle === 'pixel';
     const shellClass = acnh
         ? 'bg-[#a8d6bb] border-t-[3px] border-[#86c29a] shadow-[0_-3px_0_rgba(110,160,130,0.18)]'
+        : isLiquidGlassStyle
+        ? 'sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[26px]'
         : chromeStyle === 'pixel'
         ? 'bg-[#eadfce] border-t-[3px] border-[#8f674a] shadow-[0_-4px_0_rgba(123,90,64,0.15)]'
         : chromeStyle === 'flat'
@@ -309,6 +312,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             : 'bg-white/90 backdrop-blur-2xl border-t border-slate-200/50 shadow-[0_-5px_15px_rgba(0,0,0,0.02)]';
     const actionButtonClass = acnh
         ? 'w-11 h-11 shrink-0 rounded-full bg-[#4cb89e] flex items-center justify-center text-white hover:bg-[#43ad93] transition-colors shadow-sm'
+        : isLiquidGlassStyle
+        ? 'sully-lg-pill sully-lg-pressable w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-white'
         : isPixelStyle
         ? 'w-11 h-11 shrink-0 rounded-[4px] border-2 border-[#8f674a] bg-[#f8f0e0] flex items-center justify-center text-[#8f674a] hover:bg-[#fff7ed] transition-colors'
         : isDiscordStyle
@@ -326,6 +331,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 ? 'bg-white border border-slate-200 rounded-full'
                 : inputStyle === 'ios'
                   ? 'bg-white/80 border border-white/80 shadow-inner rounded-[26px]'
+                  : inputStyle === 'liquidglass'
+                    ? 'sully-lg-surface sully-lg-pressable rounded-[26px] text-white'
                   : inputStyle === 'telegram'
                     ? 'bg-white border border-sky-100 rounded-2xl'
                     : inputStyle === 'discord'
@@ -335,6 +342,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                         : 'bg-slate-100 rounded-[24px]';
     const sendButtonClass = acnh
         ? 'w-11 h-11 shrink-0 rounded-full bg-[#f3d06a] text-[#6b5a3e] flex items-center justify-center shadow-md'
+        : isLiquidGlassStyle
+        ? 'sully-lg-pill sully-lg-pressable w-11 h-11 shrink-0 rounded-full text-white flex items-center justify-center'
         :
         sendButtonStyle === 'pill'
             ? isPixelStyle
@@ -351,6 +360,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 : 'w-11 h-11 shrink-0 rounded-full bg-primary text-white flex items-center justify-center transition-all shadow-lg';
     const panelClass = acnh
         ? 'bg-[#f3ecdc] border-t-[3px] border-[#e0d6c0]'
+        : isLiquidGlassStyle
+        ? 'sully-lg-surface border-t-0 rounded-t-[24px]'
         : isPixelStyle
         ? 'bg-[#f8f0e0] border-t-2 border-[#8f674a]'
         : isDiscordStyle
@@ -358,6 +369,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
           : 'bg-slate-50 border-t border-slate-200/60';
     const panelTopBarSurfaceClass = acnh
         ? 'bg-[#efe7d4] border-b-2 border-[#e0d6c0]'
+        : isLiquidGlassStyle
+        ? 'bg-white/10 border-b border-white/15 backdrop-blur-xl'
         : isPixelStyle
         ? 'bg-[#eadfce] border-b-2 border-[#8f674a]'
         : isDiscordStyle

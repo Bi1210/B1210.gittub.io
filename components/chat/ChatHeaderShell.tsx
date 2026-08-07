@@ -39,7 +39,7 @@ interface ChatHeaderShellProps {
     onDeleteBuff?: (buffId: string) => void;
     /** 隐藏顶栏情绪 buff 栏（Appearance 里的「显示情绪栏」开关）。 */
     hideBuffs?: boolean;
-    headerStyle?: 'default' | 'minimal' | 'gradient' | 'wechat' | 'telegram' | 'discord' | 'pixel';
+    headerStyle?: 'default' | 'minimal' | 'gradient' | 'wechat' | 'telegram' | 'discord' | 'pixel' | 'liquidglass';
     avatarShape?: 'circle' | 'rounded' | 'square';
     headerAlign?: 'left' | 'center';
     headerDensity?: 'compact' | 'default' | 'airy';
@@ -47,6 +47,8 @@ interface ChatHeaderShellProps {
     chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
     /** 动森彩蛋模式：头部换成木质草绿栏。 */
     acnh?: boolean;
+    /** 液态玻璃皮肤的内容滚动容器；非液态玻璃时不绑定监听。 */
+    scrollTarget?: React.RefObject<HTMLElement | null>;
 }
 
 const COLLAPSED_BUFF_MIN = 2;
@@ -91,6 +93,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     statusStyle = 'subtle',
     chromeStyle = 'soft',
     acnh = false,
+    scrollTarget,
 }) => {
     const buffs: CharacterBuff[] = hideBuffs ? [] : (activeCharacter.activeBuffs || []);
     const [openBuff, setOpenBuff] = useState<CharacterBuff | null>(null);
@@ -102,6 +105,31 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     const buffPreviewRef = useRef<HTMLDivElement>(null);
     const measureChipRefs = useRef<Array<HTMLSpanElement | null>>([]);
     const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [glassShrunk, setGlassShrunk] = useState(false);
+    const [glassGlow, setGlassGlow] = useState(false);
+
+    // 只在液态玻璃顶栏绑定滚动监听，避免普通主题增加任何运行时开销。
+    useEffect(() => {
+        if (headerStyle !== 'liquidglass' || !scrollTarget?.current) return;
+        const node = scrollTarget.current;
+        let frame = 0;
+        let lastTop = node.scrollTop;
+        const onScroll = () => {
+            if (frame) return;
+            frame = window.requestAnimationFrame(() => {
+                frame = 0;
+                const top = node.scrollTop;
+                // 向下阅读超过 18px 时收缩；回到顶部或向下回拉时恢复厚度。
+                setGlassShrunk(top > 18 && top >= lastTop);
+                lastTop = top;
+            });
+        };
+        node.addEventListener('scroll', onScroll, { passive: true });
+        return () => {
+            node.removeEventListener('scroll', onScroll);
+            if (frame) window.cancelAnimationFrame(frame);
+        };
+    }, [headerStyle, scrollTarget]);
 
     const visibleBuffs = buffs.slice(0, collapsedVisibleCount);
     const hiddenBuffCount = Math.max(0, buffs.length - collapsedVisibleCount);
@@ -196,7 +224,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
         };
     }, [activeCharacter.id, buffs.length]);
 
-    const isDarkHeader = headerStyle === 'discord';
+    const isDarkHeader = headerStyle === 'discord' || headerStyle === 'liquidglass';
     const isPixelHeader = headerStyle === 'pixel';
     const useCenteredLayout = headerAlign === 'center';
     const avatarRadiusClass = avatarShape === 'square' ? 'rounded-sm' : avatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
@@ -219,7 +247,9 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                   ? 'bg-white/85 backdrop-blur-xl border-b border-sky-100 shadow-sm'
                   : headerStyle === 'discord'
                     ? 'bg-slate-900/95 backdrop-blur-xl border-b border-white/10 shadow-[0_10px_30px_rgba(15,23,42,0.35)]'
-                    : headerStyle === 'pixel'
+                    : headerStyle === 'liquidglass'
+                      ? 'sully-lg-surface sully-lg-chrome border-b-0'
+                      : headerStyle === 'pixel'
                       ? 'bg-[#c99872] border-b-[3px] border-[#7b5a40] shadow-[0_4px_0_rgba(123,90,64,0.25)]'
                       : chromeStyle === 'flat'
                         ? 'bg-white border-b border-slate-200 shadow-none'
@@ -398,7 +428,17 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     return (
         <div className="shrink-0 z-30 sticky top-0">
         {/* header 主体：sully-chat-header 钩子背景从 y=0 铺起、paddingTop 让出 safe-top，刘海段即顶栏自己的背景（无缝，和其余 App 统一）；内容垂直居中 */}
-        <div className={`sully-chat-header ${headerDensityClass} flex items-center relative ${headerToneClass}`} style={headerSafeStyle}>
+        <div
+            className={`sully-chat-header ${headerDensityClass} flex items-center relative ${headerToneClass} ${glassShrunk ? 'sully-lg-shrink' : ''} ${glassGlow ? 'sully-lg-glow sully-lg-glow-active' : ''}`}
+            style={headerSafeStyle}
+            onPointerMove={headerStyle === 'liquidglass' ? (event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                event.currentTarget.style.setProperty('--lg-pointer-x', `${((event.clientX - rect.left) / rect.width) * 100}%`);
+                event.currentTarget.style.setProperty('--lg-pointer-y', `${((event.clientY - rect.top) / rect.height) * 100}%`);
+            } : undefined}
+            onPointerEnter={headerStyle === 'liquidglass' ? () => setGlassGlow(true) : undefined}
+            onPointerLeave={headerStyle === 'liquidglass' ? () => setGlassGlow(false) : undefined}
+        >
             {/* 动森彩蛋：顶栏右下角纯色松树剪影（z-[-1] 在内容之下，不挡按钮）。塞在 header 主体内而非外层 spacer，否则会飘到刘海上 */}
             {acnh && !selectionMode && (
                 <svg viewBox="0 0 140 46" className="absolute right-2 bottom-[5px] h-9 w-auto pointer-events-none" style={{ zIndex: -1, opacity: 0.9 }} fill="#76b48f" aria-hidden>

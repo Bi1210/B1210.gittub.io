@@ -28,7 +28,8 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
   const IconComponent = Icons[app.icon] || Icons.Settings;
   const customIconUrl = useBlobRefUrl(customIcons[app.id]);
   const isNook = theme.skin === 'animalcrossing';
-  const isPaperDesktop = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
+  const isLiquidGlass = theme.skin === 'liquidglass';
+  const isPaperDesktop = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && theme.skin !== 'liquidglass' && isPaperWallpaper(theme.wallpaper);
   const preserveCustomOutline = !!customIconUrl && theme.preserveCustomIconOutlines === true;
   // 动森皮肤下标签用深棕色，普通皮肤沿用主题 contentColor。
   const contentColor = isNook ? '#725d42' : (theme.contentColor || '#ffffff');
@@ -79,7 +80,7 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
     >
       {/* #409 的“保留透明图标原轮廓”改为可选；默认继续使用原来的系统圆角底框。 */}
       <div
-        className={`${sizeClasses} relative flex items-center justify-center ${preserveCustomOutline ? '' : isPaperDesktop ? `
+        className={`${sizeClasses} relative flex items-center justify-center ${preserveCustomOutline ? '' : isLiquidGlass ? 'sully-lg-icon sully-lg-pressable rounded-[1.1rem]' : isPaperDesktop ? `
           rounded-[1.1rem] border
           transition-[transform,background-color,box-shadow] duration-200
           group-hover:-translate-y-0.5

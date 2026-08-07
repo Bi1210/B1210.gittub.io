@@ -897,7 +897,7 @@ const PhoneShell: React.FC = () => {
          }}
        />
        
-       <div className={`absolute inset-0 transition-all duration-500 ${activeApp === AppID.Launcher ? 'bg-transparent' : 'bg-white/50 backdrop-blur-3xl'}`} />
+       <div className={`absolute inset-0 transition-all duration-500 ${activeApp === AppID.Launcher ? 'bg-transparent' : theme.skin === 'liquidglass' ? 'sully-liquidglass-backdrop' : 'bg-white/50 backdrop-blur-3xl'}`} />
        
        {/* 外壳安全区两种策略：
           - 未迁移 App：外壳铺满 body（含 --app-height 多出的 +safe-bottom 溢出区），用 padding 让位安全区，
@@ -905,7 +905,7 @@ const PhoneShell: React.FC = () => {
           - 已迁移 App（彼方/聊天/群聊/桌面）：自理安全区。外壳直接把底边收回到可见 viewport
             （bottom = --standalone-safe-area-bottom），不让那多出来的 34px 把 App 底部控件压到 home 条上。 */}
       <div
-        className="sully-shell-content absolute top-0 left-0 right-0 z-10 overflow-hidden bg-transparent overscroll-none flex flex-col"
+        className={`sully-shell-content absolute top-0 left-0 right-0 z-10 overflow-hidden bg-transparent overscroll-none flex flex-col ${theme.skin === 'liquidglass' ? 'sully-liquidglass-shell' : ''}`}
         style={
           shellPadsSafeArea
             ? { bottom: 0, paddingTop: 'var(--safe-top)', paddingBottom: 'var(--safe-bottom)' }

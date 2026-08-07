@@ -1589,6 +1589,7 @@ ${memberTimeline || '(暂无互动记录)'}
                 statusStyle={osTheme.chatStatusStyle}
                 chromeStyle={osTheme.chatChromeStyle}
                 acnh={acnh}
+                scrollTarget={scrollRef}
             />
 
             {/* Messages Area */}
