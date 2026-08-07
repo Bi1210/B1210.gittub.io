@@ -34,6 +34,7 @@ import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
 import { pullLatestGameResources } from '../utils/gameUpdate';
+import { CURRENT_VERSION, VERSION_DATE, hasNewVersion, getLastSeenVersion, setLastSeenVersion, getVersionsSince, VERSION_LOGS, type VersionLog } from '../utils/version';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -566,6 +567,8 @@ const Settings: React.FC = () => {
   const [vapidReadyTick, setVapidReadyTick] = useState(0); // 关闭 VAPID 弹窗后刷新顶层徽标
   const [gameUpdateBusy, setGameUpdateBusy] = useState(false);
   const [gameUpdateStatus, setGameUpdateStatus] = useState('');
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [newVersions, setNewVersions] = useState<VersionLog[]>([]);
 
   // 模型选择 Modal 的过滤 + 公共前缀（memo 掉，避免每次 Settings 重渲染都重算）
   const modelPickerView = useMemo(() => {
@@ -1518,6 +1521,19 @@ const Settings: React.FC = () => {
           setLuckinTesting(false);
       }
   };
+
+  // 版本更新检测：打开设置页时检查是否有新版本
+  useEffect(() => {
+      if (hasNewVersion()) {
+          const lastSeen = getLastSeenVersion();
+          const newLogs = getVersionsSince(lastSeen);
+          if (newLogs.length > 0) {
+              setNewVersions(newLogs);
+              setShowWhatsNew(true);
+              trackEvent('发现新版本', { from: lastSeen || 'first-time', to: CURRENT_VERSION });
+          }
+      }
+  }, []);
 
   return (
     <div className="h-full w-full bg-slate-50/50 flex flex-col font-light relative">
@@ -2752,8 +2768,26 @@ const Settings: React.FC = () => {
                     </svg>
                 </div>
             }
+            badge={hasNewVersion() && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[9px] text-white font-bold">NEW</span>}
         >
             <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                    <div>
+                        <p className="text-xs font-bold text-emerald-700">当前版本</p>
+                        <p className="mt-0.5 text-[10px] text-emerald-600">{CURRENT_VERSION} · {VERSION_DATE}</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setNewVersions(VERSION_LOGS);
+                            setShowWhatsNew(true);
+                            trackEvent('手动查看更新日志');
+                        }}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[10px] font-bold text-white shadow-sm transition active:scale-95"
+                    >
+                        查看更新内容
+                    </button>
+                </div>
                 <p className="text-xs leading-relaxed text-slate-500">
                     手动拉取 SullyOS 整套游戏的最新前端资源，适合遇到页面崩溃、旧版本缓存或更新后显示异常时使用。
                 </p>
@@ -2788,6 +2822,55 @@ const Settings: React.FC = () => {
             · 社区迁移说明 ·
         </button>
       </div>
+
+      {/* 更新日志弹窗 */}
+      <Modal
+          isOpen={showWhatsNew}
+          title="🎉 游戏已更新"
+          onClose={() => {
+              setShowWhatsNew(false);
+              setLastSeenVersion(CURRENT_VERSION);
+              trackEvent('关闭更新日志弹窗', { version: CURRENT_VERSION });
+          }}
+          footer={
+              <button
+                  type="button"
+                  onClick={() => {
+                      setShowWhatsNew(false);
+                      setLastSeenVersion(CURRENT_VERSION);
+                      trackEvent('确认查看更新日志', { version: CURRENT_VERSION });
+                  }}
+                  className="w-full py-3 bg-emerald-600 text-white font-bold rounded-2xl shadow-sm active:scale-95 transition-transform"
+              >
+                  知道了
+              </button>
+          }
+      >
+          <div className="space-y-5 max-h-[60vh] overflow-y-auto">
+              {newVersions.map((log, index) => (
+                  <div key={log.version} className={index === 0 ? '' : 'pt-4 border-t border-slate-100'}>
+                      <div className="mb-3">
+                          <div className="flex items-center gap-2">
+                              <span className="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                                  v{log.version}
+                              </span>
+                              {index === 0 && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[9px] text-white font-bold">NEW</span>}
+                              <span className="text-[10px] text-slate-400">{log.date}</span>
+                          </div>
+                          <h3 className="mt-2 text-sm font-bold text-slate-700">{log.title}</h3>
+                      </div>
+                      <ul className="space-y-2">
+                          {log.changes.map((change, i) => (
+                              <li key={i} className="flex gap-2 text-xs leading-relaxed text-slate-600">
+                                  <span className="text-emerald-500 shrink-0">•</span>
+                                  <span>{change}</span>
+                              </li>
+                          ))}
+                      </ul>
+                  </div>
+              ))}
+          </div>
+      </Modal>
 
       {/* 主动消息 Push 加速 · 启用前确认 */}
       <Modal
