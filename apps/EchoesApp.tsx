@@ -202,28 +202,58 @@ const StepField: React.FC<{ label: string; hint?: string; children: React.ReactN
     </div>
 );
 
-/** 创建世界流程的选项选择器（稳定组件，必须在 EchoesApp 外部定义以避免键盘闪退）。 */
+/** 创建世界流程的选项选择器（稳定组件，必须在 EchoesApp 外部定义以避免键盘闪退）。
+ * 默认展开显示完整描述，点击可收起只保留标题；精美卡片风格。 */
 const PillPicker = <T extends string>({ options, value, onChange, cols = 2, accent }: {
-    options: { key: T; label: string; desc?: string }[];
+    options: { key: T; label: string; desc?: string; icon?: React.ReactNode }[];
     value: T;
     onChange: (v: T) => void;
     cols?: number;
     accent: string;
-}) => (
-    <div className={`grid gap-2 ${cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-1'}`}>
-        {options.map(opt => {
-            const active = opt.key === value;
-            return (
-                <button key={opt.key} onClick={() => onChange(opt.key)} className="relative overflow-hidden rounded-2xl border p-3 text-left transition-all"
-                    style={{ borderColor: active ? accent : 'rgba(255,255,255,.08)', background: active ? `${accent}1f` : 'rgba(255,255,255,.03)' }}>
-                    {active && <div className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full" style={{ background: accent }}><Check size={10} weight="bold" className="text-black" /></div>}
-                    <span className="block text-[12.5px] font-bold" style={{ color: active ? accent : '#e0d5c8' }}>{opt.label}</span>
-                    {opt.desc && <span className="mt-1 block text-[10px] leading-relaxed text-white/40">{opt.desc}</span>}
-                </button>
-            );
-        })}
-    </div>
-);
+}) => {
+    const [expanded, setExpanded] = useState(true);
+    return (
+        <div className="space-y-2">
+            <button
+                type="button"
+                onClick={() => setExpanded(!expanded)}
+                className="flex w-full items-center justify-between text-[10px] opacity-60 hover:opacity-100 transition"
+            >
+                <span>{expanded ? '点击收起选项' : '点击展开选项'}</span>
+                <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            <div className={`grid gap-2.5 ${cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-1'}`}>
+                {options.map(opt => {
+                    const active = opt.key === value;
+                    return (
+                        <button
+                            key={opt.key}
+                            onClick={() => onChange(opt.key)}
+                            className={`relative overflow-hidden rounded-2xl border p-3 text-left transition-all ${expanded ? '' : 'py-2'}`}
+                            style={{
+                                borderColor: active ? accent : 'rgba(255,255,255,.08)',
+                                background: active
+                                    ? `linear-gradient(135deg, ${accent}22, ${accent}12)`
+                                    : 'linear-gradient(135deg, rgba(255,255,255,.05), rgba(255,255,255,.02))',
+                                boxShadow: active ? `0 0 20px ${accent}15` : 'none',
+                            }}
+                        >
+                            {active && <div className="absolute -right-3 -top-3 h-12 w-12 rounded-full opacity-20" style={{ background: accent }} />}
+                            {active && <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full" style={{ background: accent }}>
+                                <Check size={11} weight="bold" className="text-black" />
+                            </div>}
+                            {opt.icon && <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: active ? `${accent}22` : 'rgba(255,255,255,.08)' }}>
+                                {opt.icon}
+                            </div>}
+                            <span className="block text-[13px] font-bold leading-tight" style={{ color: active ? accent : '#e8e3da' }}>{opt.label}</span>
+                            {expanded && opt.desc && <span className="mt-1.5 block text-[10px] leading-relaxed text-white/45">{opt.desc}</span>}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
 
 const cloneState = (state: EchoesState): EchoesState => ({
     ...state,
@@ -706,6 +736,9 @@ const EchoesApp: React.FC = () => {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     // React 状态更新有一个渲染间隔；用 ref 拦住同一帧内的重复点击，避免并发生成覆盖存档。
     const generatingRef = useRef(false);
+    // 滚动位置记忆：离开故事页时记录，回来时恢复（避免切 Tab 又切回来时弹到顶部）
+    const scrollPosRef = useRef<number>(0);
+    const storyContainerRef = useRef<HTMLDivElement | null>(null);
 
     // addToast 在 OSContext 里每次渲染都会拿到新的函数引用（未用 useCallback 包裹）。
     // 如果直接把它放进 useCallback/useEffect 依赖数组，会导致 loadWorlds 在外部任意状态变化时
@@ -1354,11 +1387,11 @@ const EchoesApp: React.FC = () => {
         <button onClick={() => setShowRawState(v => !v)} className="flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[11px] opacity-65" style={{ borderColor: palette.border }}><span>查看原始状态数据</span><CaretDown size={14} style={{ transform: showRawState ? 'rotate(180deg)' : undefined }} /></button>{showRawState && <pre className="max-h-80 overflow-auto rounded-xl p-3 font-mono text-[10px] leading-relaxed" style={{ background: `${palette.panel}b8` }}>{JSON.stringify(activeWorld.state, null, 2)}</pre>}
     </div>;
 
-    const actionDock = activeTab === 'story' && <div className="shrink-0 border-t px-4 pb-2 pt-2" style={{ background: `${palette.panel}f5`, borderColor: palette.border }}>
+    const actionDock = activeTab === 'story' && <div className="shrink-0 border-t px-3 pb-1.5 pt-1.5" style={{ background: `${palette.panel}f8`, borderColor: palette.border }}>
         <div className="mx-auto max-w-2xl">
-            {ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating && <div className="mb-2 space-y-1.5">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} onClick={() => void playAction(suggestion)} className="flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-[11px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}42`, background: `${ui.accent}07` }}><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px]" style={{ background: `${ui.accent}18`, color: ui.accent }}>{i + 1}</span><span>{suggestion}</span></button>)}</div>}
-            <div className="flex items-end gap-2"><textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void playAction(input); } }} rows={2} disabled={generating} placeholder={activeWorld.mode === 'reader' ? '写下你想做的事，或让世界继续……' : '输入你的行动……'} className="min-h-[48px] flex-1 resize-none rounded-2xl border bg-transparent px-3 py-2.5 text-sm outline-none placeholder:opacity-40" style={{ borderColor: palette.border }} /><button onClick={() => void playAction(input)} disabled={generating || !input.trim()} className="rounded-2xl p-3 text-white shadow-sm disabled:opacity-30" style={{ background: ui.accent }}><Sparkle size={19} weight="fill" /></button></div>
-            <div className="mt-1.5 flex items-center gap-1 text-[10px]" style={{ color: palette.muted }}><button onClick={() => setSourceVisible(v => !v)} className="rounded-lg px-2 py-1 hover:bg-black/5">{sourceVisible ? '阅读视图' : '源码视图'}</button><button onClick={() => void rollbackLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-lg px-2 py-1 hover:bg-black/5 disabled:opacity-30">回退</button><button onClick={() => void rerollLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-lg px-2 py-1 hover:bg-black/5 disabled:opacity-30">重写</button><button onClick={() => { try { navigator.clipboard?.writeText(JSON.stringify(activeWorld, null, 2)); addToast('世界档案已复制', 'success'); } catch { addToast('复制失败', 'error'); } }} className="ml-auto rounded-lg px-2 py-1 hover:bg-black/5">复制档案</button></div>
+            {ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating && <div className="mb-1.5 space-y-1">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} onClick={() => void playAction(suggestion)} className="flex w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06` }}><span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: `${ui.accent}16`, color: ui.accent }}>{i + 1}</span><span className="leading-snug">{suggestion}</span></button>)}</div>}
+            <div className="flex items-end gap-1.5"><textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void playAction(input); } }} rows={1} disabled={generating} placeholder={activeWorld.mode === 'reader' ? '写下你想做的事，或让世界继续……' : '输入你的行动……'} className="min-h-[36px] flex-1 resize-none rounded-xl border bg-transparent px-2.5 py-2 text-[13px] outline-none placeholder:opacity-35" style={{ borderColor: palette.border }} /><button onClick={() => void playAction(input)} disabled={generating || !input.trim()} className="rounded-xl p-2 text-white shadow-sm disabled:opacity-30" style={{ background: ui.accent }}><Sparkle size={16} weight="fill" /></button></div>
+            <div className="mt-1 flex items-center gap-1 text-[9px]" style={{ color: palette.muted }}><button onClick={() => setSourceVisible(v => !v)} className="rounded-md px-1.5 py-0.5 hover:bg-black/5">{sourceVisible ? '阅读' : '源码'}</button><button onClick={() => void rollbackLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-md px-1.5 py-0.5 hover:bg-black/5 disabled:opacity-30">回退</button><button onClick={() => void rerollLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-md px-1.5 py-0.5 hover:bg-black/5 disabled:opacity-30">重写</button><button onClick={() => { try { navigator.clipboard?.writeText(JSON.stringify(activeWorld, null, 2)); addToast('世界档案已复制', 'success'); } catch { addToast('复制失败', 'error'); } }} className="ml-auto rounded-md px-1.5 py-0.5 hover:bg-black/5">复制档案</button></div>
         </div>
     </div>;
 
@@ -1373,12 +1406,44 @@ const EchoesApp: React.FC = () => {
             <button onClick={() => setShowSettings(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="界面设置"><GearSix size={17} /></button>
         </header>
         <div className="relative z-10 flex shrink-0 items-center justify-between border-b px-4 py-2 text-[10px]" style={{ background: `${palette.panel}b8`, borderColor: palette.border, color: palette.muted }}><span className="inline-flex items-center gap-1.5"><MapPin size={12} style={{ color: ui.accent }} />{activeWorld.state.location}</span><span>{activeWorld.state.time}</span><span>{activeWorld.state.chapter}</span><span>{activeWorld.turns.length} 回合</span></div>
-        <main className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <main
+            ref={storyContainerRef}
+            className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+            onScroll={() => {
+                if (activeTab === 'story' && storyContainerRef.current) {
+                    scrollPosRef.current = storyContainerRef.current.scrollTop;
+                }
+            }}
+        >
             {activeTab === 'story' ? storyView : activeTab === 'relations' ? relationsView : statusView}
         </main>
         {actionDock}
         <nav className="relative z-10 flex shrink-0 items-stretch border-t pb-[var(--safe-bottom)]" style={{ background: `${palette.panel}f7`, borderColor: palette.border }}>
-            {tabItems.map(tab => { const Icon = tab.icon; const active = activeTab === tab.key; return <button key={tab.key} onClick={() => setActiveTab(tab.key)} className="flex flex-1 flex-col items-center gap-1 px-2 pb-2 pt-2 text-[10px] transition" style={{ color: active ? ui.accent : palette.muted }}><Icon size={18} weight={active ? 'fill' : 'regular'} /><span className={active ? 'font-bold' : ''}>{tab.label}</span>{active && <span className="h-0.5 w-5 rounded-full" style={{ background: ui.accent }} />}</button>; })}
+            {tabItems.map(tab => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.key;
+                return <button
+                    key={tab.key}
+                    onClick={() => {
+                        setActiveTab(tab.key);
+                        // 切回故事页时恢复滚动位置
+                        if (tab.key === 'story') {
+                            setTimeout(() => {
+                                if (storyContainerRef.current) {
+                                    storyContainerRef.current.scrollTop = scrollPosRef.current;
+                                }
+                            }, 50);
+                        }
+                    }}
+                    className="flex flex-1 flex-col items-center gap-1 px-2 pb-2 pt-2 text-[10px] transition"
+                    style={{ color: active ? ui.accent : palette.muted }}
+                >
+                    <Icon size={18} weight={active ? 'fill' : 'regular'} />
+                    <span className={active ? 'font-bold' : ''}>{tab.label}</span>
+                    {active && <span className="h-0.5 w-5 rounded-full" style={{ background: ui.accent }} />}
+                </button>;
+            })}
         </nav>
         {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}
     </div>;
