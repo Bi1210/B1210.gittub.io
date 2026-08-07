@@ -175,14 +175,16 @@ const EchoesSheet: React.FC<{
     onClose: () => void;
     title: string;
     icon: React.ReactNode;
-    palette: { panel: string; text: string; border: string };
+    /** Optional on purpose: malformed legacy state must not crash the whole app. */
+    palette?: { panel: string; text: string; border: string };
     children: React.ReactNode;
 }> = ({ open, onClose, title, icon, palette, children }) => {
+    const safePalette = palette || THEME_META.paper;
     if (!open) return null;
     return <div className="absolute inset-0 z-30 flex flex-col justify-end" onClick={onClose}>
         <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,.42)' }} />
-        <div onClick={event => event.stopPropagation()} className="relative flex max-h-[85vh] flex-col rounded-t-[28px] shadow-2xl animate-fade-in" style={{ background: palette.panel, color: palette.text }}>
-            <div className="flex shrink-0 items-center justify-center pt-2.5"><div className="h-1 w-9 rounded-full" style={{ background: palette.border }} /></div>
+        <div onClick={event => event.stopPropagation()} className="relative flex max-h-[85vh] flex-col rounded-t-[28px] shadow-2xl animate-fade-in" style={{ background: safePalette.panel, color: safePalette.text }}>
+            <div className="flex shrink-0 items-center justify-center pt-2.5"><div className="h-1 w-9 rounded-full" style={{ background: safePalette.border }} /></div>
             <div className="flex shrink-0 items-center justify-between px-5 pb-3 pt-2"><h2 className="flex items-center gap-2 text-[15px] font-bold">{icon}{title}</h2><button onClick={onClose} className="rounded-full p-1.5 opacity-50 hover:bg-black/5" aria-label="关闭"><X size={17} /></button></div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(1.25rem+var(--safe-bottom,0px))] text-xs">{children}</div>
         </div>
@@ -460,17 +462,22 @@ const normalizeProtocol = (raw: any): EchoesProtocolConfig => {
     };
 };
 
-const normalizeWorld = (raw: any): EchoesWorld => {
-    const source = raw || {};
-    const rawUi = source.ui || {};
-    const rawState = source.state || {};
-    const theme = Object.prototype.hasOwnProperty.call(THEME_META, rawUi.theme) ? rawUi.theme : DEFAULT_UI.theme;
-    const layout = Object.prototype.hasOwnProperty.call(LAYOUT_META, rawUi.layout) ? rawUi.layout : DEFAULT_UI.layout;
+const normalizeUIProfile = (raw: unknown): EchoesUIProfile => {
+    const rawUi = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, any> : {};
+    const theme = Object.prototype.hasOwnProperty.call(THEME_META, rawUi.theme) && THEME_META[rawUi.theme as EchoesTheme]
+        ? rawUi.theme as EchoesTheme
+        : DEFAULT_UI.theme;
+    const layout = Object.prototype.hasOwnProperty.call(LAYOUT_META, rawUi.layout) && LAYOUT_META[rawUi.layout as EchoesLayout]
+        ? rawUi.layout as EchoesLayout
+        : DEFAULT_UI.layout;
     const fontFamily = ['serif', 'sans', 'mono'].includes(rawUi.fontFamily) ? rawUi.fontFamily : DEFAULT_UI.fontFamily;
-    const formats = Array.isArray(source.allowedFormats)
-        ? source.allowedFormats.filter((item: unknown): item is EchoesFormat => ALL_FORMATS.includes(item as EchoesFormat))
-        : [...DEFAULT_FORMATS];
-    const ui: EchoesUIProfile = {
+    const rawLabels = rawUi.labels && typeof rawUi.labels === 'object' && !Array.isArray(rawUi.labels) ? rawUi.labels : {};
+    const label = (key: keyof typeof DEFAULT_LABELS) => {
+        const value = cleanText(rawLabels[key]);
+        return value ? value.slice(0, 40) : DEFAULT_LABELS[key];
+    };
+    const css = typeof rawUi.customCss === 'string' ? rawUi.customCss.slice(0, 50000) : DEFAULT_UI.customCss;
+    return {
         ...DEFAULT_UI,
         ...rawUi,
         theme,
@@ -479,8 +486,33 @@ const normalizeWorld = (raw: any): EchoesWorld => {
         fontFamily,
         fontScale: typeof rawUi.fontScale === 'number' ? Math.max(.8, Math.min(1.5, rawUi.fontScale)) : DEFAULT_UI.fontScale,
         lineHeight: typeof rawUi.lineHeight === 'number' ? Math.max(1.2, Math.min(2.6, rawUi.lineHeight)) : DEFAULT_UI.lineHeight,
-        labels: { ...DEFAULT_LABELS, ...(rawUi.labels || {}) },
+        customBg: typeof rawUi.customBg === 'string' ? rawUi.customBg.slice(0, 200) : undefined,
+        customPanel: typeof rawUi.customPanel === 'string' ? rawUi.customPanel.slice(0, 200) : undefined,
+        customText: typeof rawUi.customText === 'string' ? rawUi.customText.slice(0, 200) : undefined,
+        customMuted: typeof rawUi.customMuted === 'string' ? rawUi.customMuted.slice(0, 200) : undefined,
+        customBorder: typeof rawUi.customBorder === 'string' ? rawUi.customBorder.slice(0, 200) : undefined,
+        customCss: css,
+        showSuggestions: rawUi.showSuggestions !== false,
+        showStatus: rawUi.showStatus !== false,
+        showFacts: rawUi.showFacts === true,
+        showSourceToggle: rawUi.showSourceToggle !== false,
+        typewriterEffect: rawUi.typewriterEffect !== false,
+        showMoodCard: rawUi.showMoodCard !== false,
+        adaptiveLocked: rawUi.adaptiveLocked === true,
+        labels: {
+            people: label('people'), quests: label('quests'), clues: label('clues'), inventory: label('inventory'),
+            chapters: label('chapters'), saves: label('saves'), time: label('time'), location: label('location'),
+        },
     };
+};
+
+const normalizeWorld = (raw: any): EchoesWorld => {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const rawState = source.state;
+    const formats = Array.isArray(source.allowedFormats)
+        ? source.allowedFormats.filter((item: unknown): item is EchoesFormat => ALL_FORMATS.includes(item as EchoesFormat))
+        : [...DEFAULT_FORMATS];
+    const ui = normalizeUIProfile(source.ui);
     const state = normalizeState(rawState, {
         time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {},
     });
@@ -959,7 +991,12 @@ const EchoesApp: React.FC = () => {
 
     const updateUI = async (patch: Partial<EchoesUIProfile>) => {
         if (!activeWorld || generatingRef.current) return;
-        await persistWorld({ ...activeWorld, ui: { ...activeWorld.ui, ...patch, labels: { ...activeWorld.ui.labels, ...(patch.labels || {}) } } });
+        const nextUI = normalizeUIProfile({
+            ...activeWorld.ui,
+            ...patch,
+            labels: { ...activeWorld.ui.labels, ...(patch.labels || {}) },
+        });
+        await persistWorld({ ...activeWorld, ui: nextUI });
     };
 
     const updateMode = async (mode: EchoesMode) => {
@@ -999,8 +1036,10 @@ const EchoesApp: React.FC = () => {
 
     const openWorld = (world: EchoesWorld) => { const normalized = normalizeWorld(world); setActiveWorld(normalized); setView('play'); setSourceVisible(false); };
 
-    const palette = activeWorld ? THEME_META[activeWorld.ui.theme] : THEME_META.paper;
-    const ui = activeWorld?.ui || DEFAULT_UI;
+    // 最后一层运行时保险：即使旧构建、异常导入或外部状态绕过 normalizeWorld，
+    // 主题也必须回退到 paper，绝不能把 undefined 传给 palette.panel。
+    const ui = activeWorld ? normalizeUIProfile(activeWorld.ui) : DEFAULT_UI;
+    const palette = THEME_META[ui.theme] || THEME_META.paper;
     const enabledFormats = activeWorld?.allowedFormats?.length ? activeWorld.allowedFormats : DEFAULT_FORMATS;
     const textStyle: React.CSSProperties = { fontFamily: ui.fontFamily === 'mono' ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : ui.fontFamily === 'sans' ? 'ui-sans-serif, system-ui, sans-serif' : 'Georgia, "Noto Serif SC", serif', fontSize: `${ui.fontScale}em`, lineHeight: ui.lineHeight };
 
@@ -1190,7 +1229,7 @@ const EchoesApp: React.FC = () => {
         </div>;
     };
 
-    const renderSettings = () => activeWorld && <EchoesSheet open={showSettings} onClose={() => setShowSettings(false)} title="自定义 Echoes" icon={<GearSix size={17} />}>
+    const renderSettings = () => activeWorld && <EchoesSheet open={showSettings} onClose={() => setShowSettings(false)} title="自定义 Echoes" icon={<GearSix size={17} />} palette={palette}>
         <div className="space-y-4">{renderExperienceSettings()}
             <div><span className="mb-2 block font-bold opacity-70">布局</span><div className="grid grid-cols-2 gap-2">{(Object.keys(LAYOUT_META) as EchoesLayout[]).map(layout => <button key={layout} onClick={() => void updateUI({ layout })} className={`rounded-xl border px-3 py-2 text-left ${ui.layout === layout ? 'ring-2' : ''}`} style={{ borderColor: ui.layout === layout ? ui.accent : palette.border }}>{LAYOUT_META[layout]}</button>)}</div></div>
             <div><span className="mb-2 block font-bold opacity-70">主题</span><div className="grid grid-cols-5 gap-2">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => void updateUI({ theme, accent: ACCENT_PRESETS[theme][0] })} className={`h-8 rounded-lg border ${ui.theme === theme ? 'ring-2' : ''}`} style={{ background: THEME_META[theme].bg, borderColor: ui.theme === theme ? ui.accent : palette.border }} aria-label={theme} />)}</div></div>
@@ -1217,7 +1256,7 @@ const EchoesApp: React.FC = () => {
         </div>
     </EchoesSheet>;
 
-    const renderInspector = () => activeWorld && <EchoesSheet open={showInspector} onClose={() => setShowInspector(false)} title="世界检查" icon={<Eye size={17} />}>
+    const renderInspector = () => activeWorld && <EchoesSheet open={showInspector} onClose={() => setShowInspector(false)} title="世界检查" icon={<Eye size={17} />} palette={palette}>
         <div className="space-y-4">
             <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>当前状态</h3><pre className="overflow-auto rounded-xl bg-black/5 p-3 text-[11px] leading-relaxed">{JSON.stringify(activeWorld.state, null, 2)}</pre></section>
             <section><h3 className="mb-2 font-bold" style={{ color: ui.accent }}>导演账本</h3><div className="space-y-1" style={{ color: palette.muted }}><p><span className="font-semibold" style={{ color: palette.text }}>当前目标：</span>{activeWorld.director.currentGoal || '—'}</p>{activeWorld.director.activeThreads.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>活跃线索：</span>{activeWorld.director.activeThreads.join('；')}</p>}{activeWorld.director.unresolvedQuestions.length > 0 && <p><span className="font-semibold" style={{ color: palette.text }}>未解问题：</span>{activeWorld.director.unresolvedQuestions.join('；')}</p>}<p><span className="font-semibold" style={{ color: palette.text }}>剧情压力：</span>{activeWorld.director.pressure} / 100</p></div></section>
@@ -1230,7 +1269,7 @@ const EchoesApp: React.FC = () => {
     </EchoesSheet>;
 
     /** 写作指导快速编辑 Sheet：游玩中随时可打开，改完立即生效于下一轮。 */
-    const renderWritingGuideSheet = () => activeWorld && <EchoesSheet open={showWritingGuideSheet} onClose={() => setShowWritingGuideSheet(false)} title="写作指导" icon={<PencilSimple size={17} />}>
+    const renderWritingGuideSheet = () => activeWorld && <EchoesSheet open={showWritingGuideSheet} onClose={() => setShowWritingGuideSheet(false)} title="写作指导" icon={<PencilSimple size={17} />} palette={palette}>
         <p className="mb-3 text-[10.5px] leading-relaxed opacity-50">这不是世界内容——是你直接对 AI 写作本体下的底层指令，角色感知不到。改动只影响下一轮开始生效。</p>
         <div className="space-y-2.5">
             <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">写作方式</span><input defaultValue={activeWorld.writingGuide.style} onBlur={e => void updateWritingGuide({ style: e.target.value })} placeholder="例如：写实细腻、意识流……" className="w-full rounded-xl border bg-transparent px-3 py-2 text-[12px] outline-none" style={{ borderColor: palette.border }} /></label>
