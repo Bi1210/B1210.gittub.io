@@ -9,7 +9,7 @@ import {
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
-    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask
+    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask, EchoesWorld
 } from '../types';
 import { exportPostOfficeLocal, importPostOfficeLocal } from './vrWorld/postOffice';
 import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
@@ -25,7 +25,8 @@ const DB_NAME = 'AetherOS_Data';
 // v68：character_groups 角色分组（神经链接"文件夹"，见 types.ts CharacterGroup）。
 // v69：见面·剧情条目与糯米机原生预设。正文继续复用 messages 表，避免再造会话存储。
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
-const DB_VERSION = 70;
+// v71：Echoes 独立世界存档（不与旧 TRPG games / messages 混用）。
+const DB_VERSION = 71;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -48,6 +49,7 @@ const STORE_JOURNAL_STICKERS = 'journal_stickers';
 const STORE_SOCIAL_POSTS = 'social_posts';
 const STORE_COURSES = 'courses';
 const STORE_GAMES = 'games';
+const STORE_ECHOES_WORLDS = 'echoes_worlds'; // Echoes 独立世界 / 回合 / UI 存档
 const STORE_WORLDBOOKS = 'worldbooks'; 
 const STORE_NOVELS = 'novels'; 
 const STORE_BANK_TX = 'bank_transactions';
@@ -280,6 +282,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_SOCIAL_POSTS, { keyPath: 'id' });
       createStore(STORE_COURSES, { keyPath: 'id' });
       createStore(STORE_GAMES, { keyPath: 'id' }); 
+      createStore(STORE_ECHOES_WORLDS, { keyPath: 'id' });
       createStore(STORE_WORLDBOOKS, { keyPath: 'id' }); 
       createStore(STORE_NOVELS, { keyPath: 'id' });
 
@@ -1949,6 +1952,34 @@ export const DB = {
       transaction.objectStore(STORE_GAMES).delete(id);
   },
 
+  // --- Echoes：独立世界存档（不读写旧 games / messages） ---
+  getAllEchoesWorlds: async (): Promise<EchoesWorld[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_ECHOES_WORLDS)) return [];
+      return new Promise((resolve, reject) => {
+          const request = db.transaction(STORE_ECHOES_WORLDS, 'readonly').objectStore(STORE_ECHOES_WORLDS).getAll();
+          request.onsuccess = () => resolve((request.result || []) as EchoesWorld[]);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  saveEchoesWorld: async (world: EchoesWorld): Promise<void> => {
+      const db = await openDB();
+      const tx = db.transaction(STORE_ECHOES_WORLDS, 'readwrite');
+      tx.objectStore(STORE_ECHOES_WORLDS).put(world);
+      await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('Echoes 存档写入失败'));
+          tx.onabort = () => reject(tx.error || new Error('Echoes 存档写入中止'));
+      });
+  },
+
+  deleteEchoesWorld: async (id: string): Promise<void> => {
+      const db = await openDB();
+      const tx = db.transaction(STORE_ECHOES_WORLDS, 'readwrite');
+      tx.objectStore(STORE_ECHOES_WORLDS).delete(id);
+  },
+
   getAllWorldbooks: async (): Promise<Worldbook[]> => {
       const db = await openDB();
       if (!db.objectStoreNames.contains(STORE_WORLDBOOKS)) return [];
@@ -2524,27 +2555,6 @@ export const DB = {
       });
   },
 
-  patchApiRequestCapture: async (captureId: string, patch: Record<string, unknown>): Promise<boolean> => {
-      const db = await openDB();
-      if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return false;
-      return new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE_API_CALL_LOG, 'readwrite');
-          const store = tx.objectStore(STORE_API_CALL_LOG);
-          const req = store.get('one-shot-capture');
-          let updated = false;
-          req.onsuccess = () => {
-              const current = req.result?.capture;
-              if (!current || current.id !== captureId) return;
-              store.put({ id: 'one-shot-capture', capture: { ...current, ...patch } });
-              updated = true;
-          };
-          req.onerror = () => reject(req.error || new Error('patchApiRequestCapture read failed'));
-          tx.oncomplete = () => resolve(updated);
-          tx.onerror = () => reject(tx.error || new Error('patchApiRequestCapture transaction failed'));
-          tx.onabort = () => reject(tx.error || new Error('patchApiRequestCapture transaction aborted'));
-      });
-  },
-
   clearApiRequestCapture: async (): Promise<void> => {
       const db = await openDB();
       if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return;
@@ -2836,7 +2846,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, echoesWorlds, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -2856,7 +2866,8 @@ export const DB = {
           getAllFromStore(STORE_SOCIAL_POSTS),
           getAllFromStore(STORE_COURSES),
           getAllFromStore(STORE_GAMES),
-          getAllFromStore(STORE_WORLDBOOKS),
+          getAllFromStore(STORE_ECHOES_WORLDS),
+          getAllFromStore(STORE_WORLDBOOKS), 
           getAllFromStore(STORE_STORY_THEATERS),
           getAllFromStore(STORE_STORY_THEATER_PRESETS),
           getAllFromStore(STORE_STORY_THEATER_MASKS),
@@ -2901,7 +2912,7 @@ export const DB = {
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
+          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, echoesWorlds, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -2961,7 +2972,7 @@ export const DB = {
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
           STORE_ASSETS, STORE_GALLERY, STORE_USER, STORE_DIARIES,
           STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
-          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
+          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_ECHOES_WORLDS, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
           STORE_XHS_ACTIVITIES, STORE_XHS_STOCK,
           STORE_QUIZZES,
@@ -3034,6 +3045,7 @@ export const DB = {
           data.socialPosts !== undefined,
           data.courses !== undefined,
           data.games !== undefined,
+          (data as any).echoesWorlds !== undefined,
           data.worldbooks !== undefined,
           data.storyTheaters !== undefined,
           data.storyTheaterPresets !== undefined,
@@ -3305,6 +3317,10 @@ export const DB = {
           await clearAndAdd(STORE_GAMES, data.games, '游戏记录', false);
           data.games = undefined as any;
       }, data.games?.length || 0);
+      await runSection('Echoes 世界', (data as any).echoesWorlds !== undefined, async () => {
+          await clearAndAdd(STORE_ECHOES_WORLDS, (data as any).echoesWorlds, 'Echoes 世界', false);
+          (data as any).echoesWorlds = undefined;
+      }, (data as any).echoesWorlds?.length || 0);
       await runSection('世界书', data.worldbooks !== undefined, async () => {
           await clearAndAdd(STORE_WORLDBOOKS, data.worldbooks, '世界书', false);
           data.worldbooks = undefined as any;
