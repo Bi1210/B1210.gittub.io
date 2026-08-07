@@ -1583,7 +1583,7 @@ const Settings: React.FC = () => {
       }
   }, []);
 
-  const handlePullGameUpdate = async () => {
+  return (
     <div className="h-full w-full bg-slate-50/50 flex flex-col font-light relative">
 
       {/* GLOBAL PROGRESS OVERLAY */}
