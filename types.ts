@@ -20,6 +20,7 @@ export enum AppID {
   Study = 'study',
   FAQ = 'faq',
   Game = 'game',
+  Echoes = 'echoes', // Echoes：用户自定义的独立 AI 沉浸式游戏系统
   Worldbook = 'worldbook', 
   Novel = 'novel', 
   Bank = 'bank', // New App
@@ -2333,16 +2334,6 @@ export interface CharMusicProfile {
     updatedAt: number;
 }
 
-export type MemoryPalaceWaterlinePreset = 'online' | 'balanced' | 'offline' | 'custom';
-
-export interface MemoryPalaceWaterlineConfig {
-  preset: MemoryPalaceWaterlinePreset;
-  /** 自定义档位才读取；预设档位由统一映射决定。 */
-  hotZoneSize?: number;
-  /** 自定义档位才读取；预设档位由统一映射决定。 */
-  bufferThreshold?: number;
-}
-
 export interface CharacterProfile {
   id: string;
   name: string;
@@ -2377,11 +2368,6 @@ export interface CharacterProfile {
    * - manual：用户拉杆决定最多读取最近 contextLimit 条完整原文。
    */
   contextRangeMode?: 'adaptive' | 'manual';
-  /**
-   * 用户主动点「一键存进记忆宫殿」后，让原文范围继续跟随记忆水位线。
-   * 与全自动归档开关独立；未使用该按钮的旧角色保持 undefined，不改变既有行为。
-   */
-  contextFollowsMemoryPalaceHwm?: boolean;
   /** 上下文范围结构版本；用于把旧版「5000 条 + 自动水位隐藏」一次性迁移到自适应模式。 */
   contextRangePolicyVersion?: number;
   /**
@@ -2543,12 +2529,6 @@ export interface CharacterProfile {
    * 已处理的聊天。默认 false（opt-in）——首次启用建议让用户做一次 force 追平历史。
    */
   autoArchiveEnabled?: boolean;
-  /**
-   * 角色独立的记忆水位节奏。整个角色消息时间线共用这一份配置，不区分私聊、
-   * 见面、通话或剧情来源。缺省代表 online，即保持历史行为 200/100。
-   * 作为 CharacterProfile 一部分随 IndexedDB 与完整备份持久化。
-   */
-  memoryPalaceWaterline?: MemoryPalaceWaterlineConfig;
   embeddingConfig?: {
     baseUrl: string;
     apiKey: string;
@@ -3323,6 +3303,122 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
+// ─── Echoes：独立的用户自定义 AI 沉浸式游戏系统 ───
+// Echoes 不复用 GameSession，避免 TRPG 的骰子、角色聊天记忆和故事状态互相串档。
+export type EchoesMode = 'reader' | 'interactive' | 'immersive' | 'sandbox';
+export type EchoesQualityMode = 'standard' | 'high' | 'maximum';
+export type EchoesLayout = 'novel' | 'archive' | 'terminal' | 'minimal';
+export type EchoesTheme = 'paper' | 'midnight' | 'sepia' | 'mist' | 'terminal';
+export type EchoesFormat =
+    | 'text' | 'markdown' | 'html' | 'latex' | 'code' | 'json' | 'xml' | 'yaml'
+    | 'csv' | 'tsv' | 'sql' | 'svg' | 'mermaid' | 'plantuml' | 'mindmap';
+
+export interface EchoesLabels {
+    people: string;
+    quests: string;
+    clues: string;
+    inventory: string;
+    chapters: string;
+    saves: string;
+    time: string;
+    location: string;
+}
+
+export interface EchoesUIProfile {
+    layout: EchoesLayout;
+    theme: EchoesTheme;
+    accent: string;
+    fontFamily: 'serif' | 'sans' | 'mono';
+    fontScale: number;
+    lineHeight: number;
+    showSuggestions: boolean;
+    showStatus: boolean;
+    showFacts: boolean;
+    showSourceToggle: boolean;
+    labels: EchoesLabels;
+}
+
+export interface EchoesState {
+    time: string;
+    location: string;
+    chapter: string;
+    health?: number;
+    sanity?: number;
+    resources?: Record<string, number | string>;
+    inventory: string[];
+    custom: Record<string, string | number | boolean>;
+}
+
+export interface EchoesContentBlock {
+    id: string;
+    kind: 'narrative' | 'dialogue' | 'artifact' | 'state' | 'system';
+    format: EchoesFormat;
+    title?: string;
+    content: string;
+    collapsible?: boolean;
+}
+
+export interface EchoesDirectorState {
+    /** 当前场景的短期目标，不是预设剧本，只是为本轮创作提供方向。 */
+    currentGoal: string;
+    /** 当前章节希望产生的变化；允许自然改写，不锁死具体事件。 */
+    chapterGoal: string;
+    activeThreads: string[];
+    unresolvedQuestions: string[];
+    recentMotifs: string[];
+    /** 0-100；仅用于节奏参考，不直接决定剧情。 */
+    pressure: number;
+    sceneType?: string;
+    lastPacingNote?: string;
+}
+
+export interface EchoesTurn {
+    id: string;
+    action: string;
+    blocks: EchoesContentBlock[];
+    suggestions: string[];
+    chapter: string;
+    beforeState: EchoesState;
+    afterState: EchoesState;
+    beforeDirector?: EchoesDirectorState;
+    afterDirector?: EchoesDirectorState;
+    beforeContinuitySummary?: string;
+    afterContinuitySummary?: string;
+    /** 回退时恢复事实账本，避免只恢复数值却留下本轮新事实。 */
+    beforeKnownFacts?: string[];
+    beforeHardFacts?: string[];
+    createdAt: number;
+}
+
+export interface EchoesWorld {
+    id: string;
+    title: string;
+    worldSetting: string;
+    playerIdentity: string;
+    cast: string;
+    mode: EchoesMode;
+    /** 质量审核强度；重大回合会自动至少使用 maximum。 */
+    qualityMode: EchoesQualityMode;
+    allowedFormats: EchoesFormat[];
+    formattingPreference: 'adaptive' | 'novel' | 'records' | 'technical';
+    ui: EchoesUIProfile;
+    /** 世界创建时的基线，用于重建老存档与分支回退。 */
+    initialState: EchoesState;
+    initialDirector: EchoesDirectorState;
+    initialContinuitySummary?: string;
+    state: EchoesState;
+    director: EchoesDirectorState;
+    /** 长篇压缩记忆；只作为辅助上下文，不能覆盖硬事实。 */
+    continuitySummary: string;
+    hardFacts: string[];
+    knownFacts: string[];
+    turns: EchoesTurn[];
+    createdAt: number;
+    updatedAt: number;
+    lastPlayedAt: number;
+    version: number;
+}
+
 export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
 
 export interface Message {
@@ -3389,6 +3485,8 @@ export interface FullBackupData {
     socialPosts?: SocialPost[]; 
     courses?: StudyCourse[]; 
     games?: GameSession[];
+    /** Echoes 独立世界、回合与 UI 配置；与旧 TRPG 游戏记录分离。 */
+    echoesWorlds?: EchoesWorld[];
     worldbooks?: Worldbook[]; 
     roomCustomAssets?: { id?: string; name: string; image: string; defaultScale: number; description?: string; visibility?: 'public' | 'character'; assignedCharIds?: string[] }[]; 
     
