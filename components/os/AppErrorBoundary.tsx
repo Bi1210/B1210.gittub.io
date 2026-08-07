@@ -3,6 +3,7 @@ import { isChunkLoadError, tryAutoReloadForChunkError } from '../../utils/chunkL
 import { trackEvent } from '../../utils/analytics';
 import { INSTALLED_APPS, HIDDEN_APP_NAMES } from '../../constants';
 import { AppID } from '../../types';
+import { pullLatestGameResources } from '../../utils/gameUpdate';
 
 const ERROR_COPY_LABEL = '\u590d\u5236\u62a5\u9519\u4fe1\u606f';
 const ERROR_COPIED_LABEL = '\u5df2\u590d\u5236';
@@ -29,6 +30,9 @@ type AppErrorBoundaryState = {
     isChunkError: boolean;
     /** 已发起自动整页刷新, 页面即将重载 */
     autoReloading: boolean;
+    /** 手动拉取整套前端资源时的状态，不触碰本地数据。 */
+    resourceUpdating: boolean;
+    resourceUpdateError: string | null;
 };
 
 class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
@@ -42,6 +46,8 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
             copyLabel: ERROR_COPY_LABEL,
             isChunkError: false,
             autoReloading: false,
+            resourceUpdating: false,
+            resourceUpdateError: null,
         };
     }
 
@@ -86,6 +92,8 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
                 copyLabel: ERROR_COPY_LABEL,
                 isChunkError: false,
                 autoReloading: false,
+                resourceUpdating: false,
+                resourceUpdateError: null,
             });
         }
     }
@@ -150,6 +158,19 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
         trackEvent('复制报错信息', { 复制结果: '需手动复制' });
     };
 
+    private handlePullLatestResources = async () => {
+        if (this.state.resourceUpdating) return;
+        this.setState({ resourceUpdating: true, resourceUpdateError: null });
+        trackEvent('从崩溃页拉取整套游戏更新', { 结果: '开始' });
+        try {
+            await pullLatestGameResources();
+        } catch (error: any) {
+            const message = error?.message || '更新失败，请检查网络后重试';
+            this.setState({ resourceUpdating: false, resourceUpdateError: message });
+            trackEvent('从崩溃页拉取整套游戏更新', { 结果: '失败' });
+        }
+    };
+
     private handleClose = () => {
         trackEvent('从崩溃页返回桌面', {
             错误类型: this.state.isChunkError ? '资源加载失败' : '运行错误',
@@ -160,6 +181,8 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
             copyLabel: ERROR_COPY_LABEL,
             isChunkError: false,
             autoReloading: false,
+            resourceUpdating: false,
+            resourceUpdateError: null,
         });
         this.props.onCloseApp();
     };
@@ -199,6 +222,15 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
                             </button>
                             <button
                                 type="button"
+                                onClick={this.handlePullLatestResources}
+                                disabled={this.state.resourceUpdating}
+                                className="w-full px-4 py-2 bg-emerald-700 rounded-full text-xs font-bold active:scale-95 transition-transform disabled:opacity-60"
+                            >
+                                {this.state.resourceUpdating ? '正在拉取整套游戏资源…' : '拉取整套游戏更新'}
+                            </button>
+                            {this.state.resourceUpdateError && <p className="text-[10px] text-rose-300 break-all">{this.state.resourceUpdateError}</p>}
+                            <button
+                                type="button"
                                 onClick={this.handleClose}
                                 className="w-full px-4 py-2 bg-slate-700 rounded-full text-xs font-bold active:scale-95 transition-transform"
                             >
@@ -229,6 +261,15 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
                     >
                         {this.state.copyLabel}
                     </button>
+                    <button
+                        type="button"
+                        onClick={this.handlePullLatestResources}
+                        disabled={this.state.resourceUpdating}
+                        className="w-full px-4 py-2 bg-emerald-700 rounded-full text-xs font-bold active:scale-95 transition-transform disabled:opacity-60"
+                    >
+                        {this.state.resourceUpdating ? '正在拉取整套游戏资源…' : '拉取整套游戏更新'}
+                    </button>
+                    {this.state.resourceUpdateError && <p className="text-[10px] text-rose-300 break-all">{this.state.resourceUpdateError}</p>}
                     <button
                         type="button"
                         onClick={this.handleClose}
