@@ -191,6 +191,40 @@ const EchoesSheet: React.FC<{
     </div>;
 };
 
+/** 创建世界流程的输入字段容器（稳定组件，必须在 EchoesApp 外部定义以避免键盘闪退）。 */
+const StepField: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
+    <div className="mb-5">
+        <div className="mb-2 flex items-baseline justify-between">
+            <span className="text-[13px] font-semibold text-white/80">{label}</span>
+            {hint && <span className="text-[10px] text-white/30">{hint}</span>}
+        </div>
+        {children}
+    </div>
+);
+
+/** 创建世界流程的选项选择器（稳定组件，必须在 EchoesApp 外部定义以避免键盘闪退）。 */
+const PillPicker = <T extends string>({ options, value, onChange, cols = 2, accent }: {
+    options: { key: T; label: string; desc?: string }[];
+    value: T;
+    onChange: (v: T) => void;
+    cols?: number;
+    accent: string;
+}) => (
+    <div className={`grid gap-2 ${cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-1'}`}>
+        {options.map(opt => {
+            const active = opt.key === value;
+            return (
+                <button key={opt.key} onClick={() => onChange(opt.key)} className="relative overflow-hidden rounded-2xl border p-3 text-left transition-all"
+                    style={{ borderColor: active ? accent : 'rgba(255,255,255,.08)', background: active ? `${accent}1f` : 'rgba(255,255,255,.03)' }}>
+                    {active && <div className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full" style={{ background: accent }}><Check size={10} weight="bold" className="text-black" /></div>}
+                    <span className="block text-[12.5px] font-bold" style={{ color: active ? accent : '#e0d5c8' }}>{opt.label}</span>
+                    {opt.desc && <span className="mt-1 block text-[10px] leading-relaxed text-white/40">{opt.desc}</span>}
+                </button>
+            );
+        })}
+    </div>
+);
+
 const cloneState = (state: EchoesState): EchoesState => ({
     ...state,
     inventory: Array.isArray(state?.inventory) ? state.inventory.map(cleanText).filter(Boolean).slice(0, 100) : [],
@@ -1080,32 +1114,7 @@ const EchoesApp: React.FC = () => {
         const current = CREATE_STEPS[createStep - 1];
         const CurrentIcon = current.icon;
         const canProceedFromStep1 = draft.title.trim().length > 0 && draft.world.trim().length > 0;
-
-        const StepField: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
-            <div className="mb-5">
-                <div className="mb-2 flex items-baseline justify-between">
-                    <span className="text-[13px] font-semibold text-white/80">{label}</span>
-                    {hint && <span className="text-[10px] text-white/30">{hint}</span>}
-                </div>
-                {children}
-            </div>
-        );
         const inputCls = "w-full rounded-2xl border border-white/[.08] bg-white/[.05] px-4 py-3 text-[14px] leading-relaxed outline-none transition placeholder:text-white/20 focus:border-white/25 focus:bg-white/[.08]";
-        const PillPicker = <T extends string>({ options, value, onChange, cols = 2 }: { options: { key: T; label: string; desc?: string }[]; value: T; onChange: (v: T) => void; cols?: number }) => (
-            <div className={`grid gap-2 ${cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-1'}`}>
-                {options.map(opt => {
-                    const active = opt.key === value;
-                    return (
-                        <button key={opt.key} onClick={() => onChange(opt.key)} className="relative overflow-hidden rounded-2xl border p-3 text-left transition-all"
-                            style={{ borderColor: active ? current.accent : 'rgba(255,255,255,.08)', background: active ? `${current.accent}1f` : 'rgba(255,255,255,.03)' }}>
-                            {active && <div className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full" style={{ background: current.accent }}><Check size={10} weight="bold" className="text-black" /></div>}
-                            <span className="block text-[12.5px] font-bold" style={{ color: active ? current.accent : '#e0d5c8' }}>{opt.label}</span>
-                            {opt.desc && <span className="mt-1 block text-[10px] leading-relaxed text-white/40">{opt.desc}</span>}
-                        </button>
-                    );
-                })}
-            </div>
-        );
 
         return <div className="flex h-full min-h-0 flex-col overflow-hidden" style={{ paddingTop: 'var(--safe-top)', background: 'radial-gradient(circle at 20% 0%, rgba(167,139,250,.10), transparent 55%), radial-gradient(circle at 90% 20%, rgba(52,211,153,.06), transparent 45%), #0d0e13' }}>
             <header className="flex items-center gap-3 px-4 pt-3 pb-2">
@@ -1137,9 +1146,9 @@ const EchoesApp: React.FC = () => {
                     </div>}
 
                     {createStep === 3 && <div className="animate-fade-in">
-                        <StepField label="游戏档位"><PillPicker cols={2} value={draft.mode} onChange={mode => setDraft({ ...draft, mode })} options={(Object.keys(MODE_META) as EchoesMode[]).map(m => ({ key: m, label: MODE_META[m].label, desc: MODE_META[m].description }))} /></StepField>
-                        <StepField label="剧情质量"><PillPicker cols={3} value={draft.qualityMode} onChange={qualityMode => setDraft({ ...draft, qualityMode })} options={(Object.keys(QUALITY_META) as EchoesQualityMode[]).map(q => ({ key: q, label: QUALITY_META[q].label, desc: QUALITY_META[q].description }))} /></StepField>
-                        <StepField label="剧情排版倾向"><PillPicker cols={2} value={draft.formatting} onChange={formatting => setDraft({ ...draft, formatting })} options={[{ key: 'adaptive' as const, label: '自适应', desc: '按内容选择格式' }, { key: 'novel' as const, label: '小说优先', desc: '正文连续易读' }, { key: 'records' as const, label: '档案优先', desc: '世界内资料更丰富' }, { key: 'technical' as const, label: '技术记录', desc: '终端、数据更多' }]} /></StepField>
+                        <StepField label="游戏档位"><PillPicker cols={2} accent={current.accent} value={draft.mode} onChange={mode => setDraft({ ...draft, mode })} options={(Object.keys(MODE_META) as EchoesMode[]).map(m => ({ key: m, label: MODE_META[m].label, desc: MODE_META[m].description }))} /></StepField>
+                        <StepField label="剧情质量"><PillPicker cols={3} accent={current.accent} value={draft.qualityMode} onChange={qualityMode => setDraft({ ...draft, qualityMode })} options={(Object.keys(QUALITY_META) as EchoesQualityMode[]).map(q => ({ key: q, label: QUALITY_META[q].label, desc: QUALITY_META[q].description }))} /></StepField>
+                        <StepField label="剧情排版倾向"><PillPicker cols={2} accent={current.accent} value={draft.formatting} onChange={formatting => setDraft({ ...draft, formatting })} options={[{ key: 'adaptive' as const, label: '自适应', desc: '按内容选择格式' }, { key: 'novel' as const, label: '小说优先', desc: '正文连续易读' }, { key: 'records' as const, label: '档案优先', desc: '世界内资料更丰富' }, { key: 'technical' as const, label: '技术记录', desc: '终端、数据更多' }]} /></StepField>
 
                         <div className="mt-2 overflow-hidden rounded-3xl border border-white/[.08]" style={{ background: 'linear-gradient(160deg, rgba(192,132,252,.08), rgba(255,255,255,.02))' }}>
                             <div className="flex items-center gap-2 border-b border-white/[.06] px-4 py-3"><PencilSimple size={15} className="text-purple-300" /><span className="text-[12.5px] font-bold text-white/85">写作指导</span><span className="ml-auto text-[9px] text-white/30">随时可在游玩中调整</span></div>
@@ -1202,7 +1211,7 @@ const EchoesApp: React.FC = () => {
                                 <span className="text-[13px] font-bold text-white/85">我自己选</span>
                             </button>
                             {draftUICustomized && <div className="border-t border-white/[.06] px-3.5 pb-4 pt-3">
-                                <StepField label="布局"><PillPicker cols={2} value={draftUI.layout} onChange={layout => setDraftUI({ ...draftUI, layout })} options={(Object.keys(LAYOUT_META) as EchoesLayout[]).map(l => ({ key: l, label: LAYOUT_META[l] }))} /></StepField>
+                                <StepField label="布局"><PillPicker cols={2} accent={current.accent} value={draftUI.layout} onChange={layout => setDraftUI({ ...draftUI, layout })} options={(Object.keys(LAYOUT_META) as EchoesLayout[]).map(l => ({ key: l, label: LAYOUT_META[l] }))} /></StepField>
                                 <StepField label="主题">
                                     <div className="grid grid-cols-5 gap-2.5">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => setDraftUI({ ...draftUI, theme, accent: ACCENT_PRESETS[theme][0] })} className="flex flex-col items-center gap-1.5" aria-label={theme}><span className="block h-11 w-11 rounded-2xl border-2 transition" style={{ background: THEME_META[theme].bg, borderColor: draftUI.theme === theme ? current.accent : 'rgba(255,255,255,.12)' }} />{draftUI.theme === theme && <Check size={11} weight="bold" style={{ color: current.accent }} />}</button>)}</div>
                                 </StepField>
