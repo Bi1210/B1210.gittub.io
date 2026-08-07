@@ -203,7 +203,7 @@ const StepField: React.FC<{ label: string; hint?: string; children: React.ReactN
 );
 
 /** 创建世界流程的选项选择器（稳定组件，必须在 EchoesApp 外部定义以避免键盘闪退）。
- * 默认展开显示完整描述，点击可收起只保留标题；精美卡片风格。 */
+ * 整组选项可展开/收起：默认展开显示完整描述，点击顶部按钮收起只显示标题。 */
 const PillPicker = <T extends string>({ options, value, onChange, cols = 2, accent }: {
     options: { key: T; label: string; desc?: string; icon?: React.ReactNode }[];
     value: T;
@@ -212,16 +212,21 @@ const PillPicker = <T extends string>({ options, value, onChange, cols = 2, acce
     accent: string;
 }) => {
     const [expanded, setExpanded] = useState(true);
+    
     return (
         <div className="space-y-2">
-            <button
-                type="button"
-                onClick={() => setExpanded(!expanded)}
-                className="flex w-full items-center justify-between text-[10px] opacity-60 hover:opacity-100 transition"
-            >
-                <span>{expanded ? '点击收起选项' : '点击展开选项'}</span>
-                <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
-            </button>
+            {options.some(o => o.desc) && (
+                <button
+                    type="button"
+                    onClick={() => setExpanded(!expanded)}
+                    className="flex w-full items-center justify-between rounded-lg border border-white/[.08] bg-white/[.03] px-3 py-2 text-[11px] text-white/60 hover:text-white/90 hover:bg-white/[.06] transition"
+                >
+                    <span>{expanded ? '点击收起选项详情' : '点击展开选项详情'}</span>
+                    <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+            )}
             <div className={`grid gap-2.5 ${cols === 2 ? 'grid-cols-2' : cols === 3 ? 'grid-cols-3' : 'grid-cols-1'}`}>
                 {options.map(opt => {
                     const active = opt.key === value;
