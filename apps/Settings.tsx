@@ -33,7 +33,7 @@ import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
-import { pullLatestGameResources } from '../utils/gameUpdate';
+import { pullLatestGameResources, getUpdateStatus, clearUpdateStatus, type UpdateStatus } from '../utils/gameUpdate';
 import { CURRENT_VERSION, VERSION_DATE, hasNewVersion, getLastSeenVersion, setLastSeenVersion, getVersionsSince, VERSION_LOGS, type VersionLog } from '../utils/version';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
@@ -568,6 +568,9 @@ const Settings: React.FC = () => {
   const [gameUpdateBusy, setGameUpdateBusy] = useState(false);
   const [gameUpdateStatus, setGameUpdateStatus] = useState('');
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
+  const [showUpdateProgress, setShowUpdateProgress] = useState(false);
+  const [updateProgressStatus, setUpdateProgressStatus] = useState<'checking' | 'downloading' | 'success' | 'failed'>('checking');
   const [newVersions, setNewVersions] = useState<VersionLog[]>([]);
 
   // 模型选择 Modal 的过滤 + 公共前缀（memo 掉，避免每次 Settings 重渲染都重算）
@@ -600,15 +603,60 @@ const Settings: React.FC = () => {
   const handlePullGameUpdate = async () => {
       if (gameUpdateBusy) return;
       setGameUpdateBusy(true);
+      setShowUpdateProgress(true);
+      setUpdateProgressStatus('checking');
       setGameUpdateStatus('正在检查最新游戏资源…');
       try {
+          // 模拟检查阶段
+          await new Promise(resolve => setTimeout(resolve, 800));
+          setUpdateProgressStatus('downloading');
+          setGameUpdateStatus('正在清理缓存并下载最新资源…');
+          
           await pullLatestGameResources();
+          // 更新成功会自动刷新，不会走到这里
       } catch (error: any) {
+          setUpdateProgressStatus('failed');
           setGameUpdateBusy(false);
           setGameUpdateStatus(`更新失败：${error?.message || '网络不可用，请稍后重试'}`);
           addToast('游戏更新失败，未修改本地数据', 'error');
+          trackEvent('游戏更新失败', { error: error?.message });
+          // 失败时 3 秒后自动关闭进度弹窗
+          setTimeout(() => {
+              setShowUpdateProgress(false);
+              setUpdateProgressStatus('checking');
+          }, 3000);
       }
   };
+
+  // 检查更新完成状态：页面加载时检查是否刚完成更新，是则弹出欢迎弹窗
+  useEffect(() => {
+      const updateStatus = getUpdateStatus();
+      if (updateStatus?.status === 'success' && updateStatus.timestamp) {
+          // 5秒内的更新算刚完成
+          const isRecent = Date.now() - updateStatus.timestamp < 5000;
+          if (isRecent) {
+              clearUpdateStatus();
+              setNewVersions(VERSION_LOGS.slice(0, 1));
+              setShowWhatsNew(true);
+              trackEvent('更新完成欢迎弹窗', { version: CURRENT_VERSION });
+          } else {
+              clearUpdateStatus();
+          }
+      }
+  }, []);
+
+  // 版本更新检测：打开设置页时检查是否有新版本，有则弹窗提示用户更新
+  useEffect(() => {
+      if (hasNewVersion()) {
+          const lastSeen = getLastSeenVersion();
+          const newLogs = getVersionsSince(lastSeen);
+          if (newLogs.length > 0) {
+              setNewVersions(newLogs);
+              setShowUpdatePrompt(true);
+              trackEvent('检测到新版本', { from: lastSeen || 'first-time', to: CURRENT_VERSION });
+          }
+      }
+  }, []);
 
   const doEnablePushAccelerator = async () => {
       if (ppBusy) return;
@@ -1522,20 +1570,20 @@ const Settings: React.FC = () => {
       }
   };
 
-  // 版本更新检测：打开设置页时检查是否有新版本
+  // 版本更新检测：打开设置页时检查是否有新版本，有则弹窗提示用户更新
   useEffect(() => {
       if (hasNewVersion()) {
           const lastSeen = getLastSeenVersion();
           const newLogs = getVersionsSince(lastSeen);
           if (newLogs.length > 0) {
               setNewVersions(newLogs);
-              setShowWhatsNew(true);
-              trackEvent('发现新版本', { from: lastSeen || 'first-time', to: CURRENT_VERSION });
+              setShowUpdatePrompt(true);
+              trackEvent('检测到新版本', { from: lastSeen || 'first-time', to: CURRENT_VERSION });
           }
       }
   }, []);
 
-  return (
+  const handlePullGameUpdate = async () => {
     <div className="h-full w-full bg-slate-50/50 flex flex-col font-light relative">
 
       {/* GLOBAL PROGRESS OVERLAY */}
@@ -2822,6 +2870,123 @@ const Settings: React.FC = () => {
             · 社区迁移说明 ·
         </button>
       </div>
+
+      {/* 更新进度弹窗 */}
+      <Modal
+          isOpen={showUpdateProgress}
+          title="正在更新游戏"
+          onClose={() => {}}
+      >
+          <div className="flex flex-col items-center py-6 space-y-4">
+              {updateProgressStatus === 'checking' && (
+                  <>
+                      <div className="w-16 h-16 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+                      <p className="text-sm text-slate-600">正在检查最新资源...</p>
+                  </>
+              )}
+              {updateProgressStatus === 'downloading' && (
+                  <>
+                      <div className="w-16 h-16 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
+                      <p className="text-sm text-slate-600">正在清理缓存并下载...</p>
+                      <p className="text-xs text-slate-400">即将自动刷新页面</p>
+                  </>
+              )}
+              {updateProgressStatus === 'failed' && (
+                  <>
+                      <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                          <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                      </div>
+                      <p className="text-sm text-red-600 font-bold">更新失败</p>
+                      <p className="text-xs text-slate-500 text-center max-w-xs">{gameUpdateStatus}</p>
+                      <button
+                          onClick={() => {
+                              setShowUpdateProgress(false);
+                              setUpdateProgressStatus('checking');
+                          }}
+                          className="mt-4 px-6 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold"
+                      >
+                          关闭
+                      </button>
+                  </>
+              )}
+          </div>
+      </Modal>
+
+      {/* 发现新版本提示弹窗 */}
+      <Modal
+          isOpen={showUpdatePrompt}
+          title="🎉 发现新版本"
+          onClose={() => {
+              setShowUpdatePrompt(false);
+              setLastSeenVersion(CURRENT_VERSION);
+              trackEvent('关闭更新提示弹窗', { action: 'dismiss' });
+          }}
+          footer={
+              <div className="flex gap-2 w-full">
+                  <button
+                      type="button"
+                      onClick={() => {
+                          setShowUpdatePrompt(false);
+                          setLastSeenVersion(CURRENT_VERSION);
+                          trackEvent('关闭更新提示弹窗', { action: 'later' });
+                      }}
+                      className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl active:scale-95 transition-transform"
+                  >
+                      稍后再说
+                  </button>
+                  <button
+                      type="button"
+                      onClick={() => {
+                          setShowUpdatePrompt(false);
+                          setLastSeenVersion(CURRENT_VERSION);
+                          trackEvent('从更新提示开始更新', { version: CURRENT_VERSION });
+                          void handlePullGameUpdate();
+                      }}
+                      className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-2xl shadow-sm active:scale-95 transition-transform"
+                  >
+                      立即更新
+                  </button>
+              </div>
+          }
+      >
+          <div className="space-y-4">
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                      <span className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white">
+                          v{CURRENT_VERSION}
+                      </span>
+                      <span className="text-[10px] text-emerald-600">{VERSION_DATE}</span>
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-700 mb-2">{newVersions[0]?.title}</h3>
+                  <ul className="space-y-1.5">
+                      {newVersions[0]?.changes.slice(0, 3).map((change, i) => (
+                          <li key={i} className="flex gap-2 text-xs leading-relaxed text-slate-600">
+                              <span className="text-emerald-500 shrink-0">•</span>
+                              <span>{change}</span>
+                          </li>
+                      ))}
+                      {(newVersions[0]?.changes.length || 0) > 3 && (
+                          <li className="text-[10px] text-slate-400 pl-4">...还有 {(newVersions[0]?.changes.length || 0) - 3} 项更新</li>
+                      )}
+                  </ul>
+              </div>
+              <button
+                  type="button"
+                  onClick={() => {
+                      setShowUpdatePrompt(false);
+                      setShowWhatsNew(true);
+                  }}
+                  className="w-full text-xs text-emerald-600 hover:text-emerald-700 py-2"
+              >
+                  查看完整更新内容 →
+              </button>
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                  更新只清理前端缓存，不会删除世界存档、聊天记录、API 配置等本地数据。
+              </p>
+          </div>
+      </Modal>
 
       {/* 更新日志弹窗 */}
       <Modal
