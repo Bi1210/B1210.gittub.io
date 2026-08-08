@@ -103,9 +103,9 @@ const ACNH_WALLPAPER = 'linear-gradient(180deg, #F8F4E8 0%, #F3EFDD 58%, #E6EECE
 const MOBILEGAME_WALLPAPER = 'radial-gradient(95% 55% at 85% 0%, #fdeef7 0%, transparent 50%), radial-gradient(85% 55% at 6% 10%, #f6f2fc 0%, transparent 55%), linear-gradient(180deg, #fdfbff 0%, #f9f6fd 55%, #f4f0fa 100%)';
 // 电子宠物主题壁纸：薰衣草奶油（照抄参考稿——柔紫底衬奶油卡片与紫描边）。
 const TAMAGOTCHI_WALLPAPER = 'radial-gradient(85% 50% at 80% 0%, #e6dcf8 0%, transparent 55%), radial-gradient(75% 45% at 12% 10%, #f4edfb 0%, transparent 55%), linear-gradient(180deg, #ded4f4 0%, #d6cbf0 55%, #cfc3ec 100%)';
-// 液态玻璃主题壁纸：深色多彩光斑渗透底——玻璃层的通透/折射效果依赖背景色透出来晕染，
-// 纯白或纯色背景反而看不出液态玻璃质感，所以选深底 + 多组柔光斑模拟 iOS 26 系统壁纸的氛围光。
-const LIQUIDGLASS_WALLPAPER = 'radial-gradient(60% 45% at 15% 8%, rgba(94,143,255,0.55) 0%, transparent 60%), radial-gradient(55% 40% at 88% 12%, rgba(255,138,196,0.45) 0%, transparent 60%), radial-gradient(65% 55% at 50% 92%, rgba(120,90,255,0.4) 0%, transparent 62%), radial-gradient(50% 40% at 92% 85%, rgba(94,229,255,0.35) 0%, transparent 58%), linear-gradient(160deg, #0b0c14 0%, #14121f 45%, #0d1018 100%)';
+// 液态玻璃不提供壁纸：它必须直接使用用户当前的真实壁纸，颜色由壁纸透过玻璃产生。
+// 不在这里放渐变、蓝光或主题底色；切换皮肤时 applyDesktopSkin 会保留当前壁纸。
+
 
 type DesktopSkinOption = { id: string; name: string; desc: string; swatch: string; config: Partial<OSTheme> };
 
@@ -167,14 +167,14 @@ const DESKTOP_SKINS: DesktopSkinOption[] = [
   {
     id: 'liquidglass',
     name: '液态玻璃',
-    desc: 'iOS 26 风格 · 毛玻璃材质 · 深色氛围光 · CSS 模拟，非系统原生渲染',
-    swatch: 'linear-gradient(160deg,#0b0c14 0%,#3a5fd9 35%,#e879b8 70%,#0d1018 100%)',
+    desc: 'iOS 26 风格 · 原壁纸透出 · 无色透明玻璃 · CSS 模拟，非系统原生渲染',
+    swatch: 'linear-gradient(135deg,rgba(255,255,255,.76),rgba(255,255,255,.18))',
     config: {
       skin: 'liquidglass',
       desktopVariant: 'paper',
       hue: 225, saturation: 60, lightness: 62,
       contentColor: '#ffffff',
-      wallpaper: LIQUIDGLASS_WALLPAPER,
+      // wallpaper 故意不写：applyDesktopSkin 会把当前真实壁纸原样带入。
       // 不强制隐藏状态栏：iOS PWA 自动走平台默认的真实状态栏，普通浏览器仍保留虚拟状态栏。
       chatAvatarShape: 'circle', chatAvatarSize: 'medium',
       chatBubbleStyle: 'ios', chatMessageSpacing: 'default',
@@ -733,7 +733,9 @@ const Appearance: React.FC = () => {
   // 切换桌面整机风格：动森模式自动撒叶子贴纸（保留用户已有装饰），切回默认时只清掉 acnh 叶子。
   // 壁纸处理：进入动森前备份用户原壁纸（data URI 存 IndexedDB，渐变/URL 存 localStorage），
   // 切回默认时还原，避免覆盖用户自己设的桌面壁纸。
-  const ACNH_WP_BACKUP_KEY = 'acnh_wallpaper_backup';
+  // 所有桌面皮肤共享同一份“用户原壁纸”备份；液态玻璃绝不能生成或替换壁纸。
+  const DESKTOP_SKIN_WP_BACKUP_KEY = 'desktop_skin_wallpaper_backup';
+  const LEGACY_ACNH_WP_BACKUP_KEY = 'acnh_wallpaper_backup';
   const currentDesktopSkinId = theme.skin && theme.skin !== 'default'
       ? theme.skin
       : theme.desktopVariant === 'nostalgia' ? 'nostalgia' : 'default';
@@ -743,35 +745,55 @@ const Appearance: React.FC = () => {
 
       let wallpaper: string;
       if (!goingDefault) {
-          // 非默认皮肤（动森 / 手游 …）使用各自预设的壁纸
-          wallpaper = (skin.config.wallpaper as string) || DEFAULT_WALLPAPER;
-          // 仅从「默认 → 某皮肤」时备份一次用户原壁纸；皮肤之间互切不再覆盖备份，保住最初的用户壁纸
+          // 只有第一次离开默认桌面时备份用户壁纸；皮肤之间切换不能覆盖这份备份。
           if (!currentlyThemed) {
-              const dbWp = await DB.getAsset('wallpaper'); // 用户若用 data URI 壁纸，真值在这
+              const dbWp = await DB.getAsset('wallpaper');
               const cur = dbWp || theme.wallpaper || '';
-              if (cur && cur.startsWith('data:')) {
-                  await DB.saveAsset('wallpaper_user_backup', cur);
-                  localStorage.setItem(ACNH_WP_BACKUP_KEY, '__asset__');
+              // IndexedDB 中的值可能是 blobref 指针；统一放入备份资产，不能直接写进 CSS。
+              if (dbWp || (cur && (cur.startsWith('data:') || cur.startsWith('blob:')))) {
+                  await DB.saveAsset('wallpaper_user_backup', dbWp || cur);
+                  localStorage.setItem(DESKTOP_SKIN_WP_BACKUP_KEY, '__asset__');
               } else {
-                  localStorage.setItem(ACNH_WP_BACKUP_KEY, cur);
+                  localStorage.setItem(DESKTOP_SKIN_WP_BACKUP_KEY, cur);
                   await DB.deleteAsset('wallpaper_user_backup');
               }
           }
+
+          if (skin.id === 'liquidglass') {
+              // 原生 Liquid Glass 的底层就是当前用户壁纸：重复选择时不重置用户刚换的壁纸。
+              if (currentDesktopSkinId === 'liquidglass') {
+                  wallpaper = theme.wallpaper || DEFAULT_WALLPAPER;
+              } else {
+                  const marker = localStorage.getItem(DESKTOP_SKIN_WP_BACKUP_KEY)
+                      ?? localStorage.getItem(LEGACY_ACNH_WP_BACKUP_KEY);
+                  if (marker === '__asset__') {
+                      wallpaper = (await DB.getAsset('wallpaper_user_backup')) || theme.wallpaper || DEFAULT_WALLPAPER;
+                  } else if (marker !== null && marker !== '') {
+                      wallpaper = marker;
+                  } else {
+                      wallpaper = theme.wallpaper || DEFAULT_WALLPAPER;
+                  }
+              }
+          } else {
+              // 其他有专属视觉的皮肤才使用自己的预设壁纸。
+              wallpaper = (skin.config.wallpaper as string) || theme.wallpaper || DEFAULT_WALLPAPER;
+          }
       } else {
-          // 切回默认：还原备份的用户壁纸
-          const marker = localStorage.getItem(ACNH_WP_BACKUP_KEY);
+          // 切回默认：还原进入桌面皮肤前的用户原壁纸。
+          const marker = localStorage.getItem(DESKTOP_SKIN_WP_BACKUP_KEY)
+              ?? localStorage.getItem(LEGACY_ACNH_WP_BACKUP_KEY);
           if (marker === '__asset__') {
               wallpaper = (await DB.getAsset('wallpaper_user_backup')) || DEFAULT_WALLPAPER;
           } else if (marker !== null) {
-              wallpaper = marker || DEFAULT_WALLPAPER; // 空字符串=用户原本就是默认
+              wallpaper = marker || DEFAULT_WALLPAPER;
           } else {
-              wallpaper = DEFAULT_WALLPAPER; // 没有备份记录（老用户首次切回）
+              wallpaper = DEFAULT_WALLPAPER;
           }
       }
 
       const existing = (theme.desktopDecorations || []).filter(d => !d.id.startsWith(ACNH_LEAF_PREFIX));
       const desktopDecorations = skin.id === 'animalcrossing' ? [...existing, ...buildAcnhLeaves()] : existing;
-      // skin.config 里写死的 wallpaper 不用，改用上面算出的（备份/还原后的）值
+      // 皮肤配置里的 wallpaper 只作历史兼容字段；这里使用上面算出的真实壁纸。
       const { wallpaper: _ignored, ...restConfig } = skin.config;
       await updateTheme({ ...restConfig, wallpaper, desktopDecorations });
       addToast(`已切换到「${skin.name}」`, 'success');

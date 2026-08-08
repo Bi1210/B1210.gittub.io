@@ -145,44 +145,66 @@
          + 交互态形变去逼近质感；用 --lg- 前缀变量集中管理，方便统一调参。
          ============================================================ */
       html[data-skin="liquidglass"] {
-        /* 项目没有全局深色模式开关，液态玻璃皮肤直接以深色玻璃为默认视觉——
-           iOS 26 系统本身在深色壁纸下的呈现也更接近这种通透氛围光效果。 */
+        /* 中性 Liquid Glass：不生成壁纸，不染蓝/紫/黑，颜色只来自用户自己的壁纸。 */
         --app-font: -apple-system, 'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Helvetica Neue', sans-serif;
-        --lg-tint: 44, 44, 46;
-        --lg-blur: 28px;
-        --lg-saturate: 180%;
-        --lg-border: rgba(255, 255, 255, 0.16);
-        --lg-highlight: rgba(255, 255, 255, 0.22);
-        --lg-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        color-scheme: dark;
+        --lg-tint: 255, 255, 255;
+        --lg-blur: 38px;
+        --lg-saturate: 148%;
+        --lg-contrast: 106%;
+        --lg-border: rgba(255, 255, 255, 0.42);
+        --lg-highlight: rgba(255, 255, 255, 0.86);
+        --lg-shadow: 0 12px 38px rgba(8, 25, 48, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.78), inset 0 -18px 36px rgba(255, 255, 255, 0.06);
+        color-scheme: light;
       }
-      /* 玻璃卡片内的正文文字：深色玻璃底下需要浅色文字才可读，供聊天/弹窗类容器按需引用。 */
+      /* 玻璃文字有两套语义：Chrome 默认使用白色，设置/表单显式使用深色。 */
       html[data-skin="liquidglass"] .sully-lg-text {
-        color: rgba(255, 255, 255, 0.92);
+        color: rgba(255, 255, 255, 0.94);
       }
       html[data-skin="liquidglass"] .sully-lg-text-muted {
-        color: rgba(255, 255, 255, 0.55);
+        color: rgba(255, 255, 255, 0.64);
       }
-      /* 基础玻璃材质：任意元素挂 .sully-lg-surface 即获得毛玻璃质感。
-         用 rgba(--lg-tint) 而非纯色，保证背景色随浅/深色变量联动，不用另开一套深色规则。 */
+      /* 基础玻璃：只挂在局部 Chrome 上。背景仍来自下方真实壁纸。 */
       html[data-skin="liquidglass"] .sully-lg-surface {
         position: relative;
-        background: rgba(var(--lg-tint), 0.55);
-        -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
-        backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+        overflow: hidden;
+        isolation: isolate;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08) 46%, rgba(255, 255, 255, 0.13)),
+          rgba(var(--lg-tint), 0.10);
+        -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
+        backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
         border: 1px solid var(--lg-border);
         box-shadow: var(--lg-shadow);
-        transition: background 0.25s ease, box-shadow 0.25s ease, transform 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+        transition: background 0.28s ease, box-shadow 0.28s ease, transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
       }
-      /* 顶部边缘高光：模拟玻璃表面的环境光反射，只在上边缘出现一道柔光，不做满铺，避免糊成一片。 */
-      html[data-skin="liquidglass"] .sully-lg-surface::before {
+      /* 所有内容位于光学装饰之上，避免高光遮住文字和图标。 */
+      html[data-skin="liquidglass"] .sully-lg-surface > *:not(.absolute),
+      html[data-skin="liquidglass"] .sully-lg-pill > *:not(.absolute) {
+        position: relative;
+        z-index: 1;
+      }
+      /* 上边缘高光与斜向折射线：只模拟玻璃边缘，不改变背后壁纸的色相。 */
+      html[data-skin="liquidglass"] .sully-lg-surface::before,
+      html[data-skin="liquidglass"] .sully-lg-pill::before {
         content: '';
         position: absolute;
         inset: 0;
         border-radius: inherit;
-        background: linear-gradient(180deg, var(--lg-highlight) 0%, transparent 40%);
-        opacity: 0.5;
+        background: linear-gradient(115deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.12) 17%, transparent 42%, transparent 74%, rgba(255, 255, 255, 0.18) 100%);
+        opacity: 0.72;
         pointer-events: none;
+        z-index: 0;
+      }
+      html[data-skin="liquidglass"] .sully-lg-surface::after,
+      html[data-skin="liquidglass"] .sully-lg-pill::after {
+        content: '';
+        position: absolute;
+        inset: 1px;
+        border-radius: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: radial-gradient(72% 34% at 50% 0%, rgba(255, 255, 255, 0.22), transparent 72%);
+        pointer-events: none;
+        z-index: 0;
       }
       /* 按下态：表面凹陷 + 高光聚拢，而不是简单变暗，模拟软质玻璃被按压的触感。 */
       html[data-skin="liquidglass"] .sully-lg-surface:active,
@@ -192,11 +214,16 @@
       }
       /* 圆形玻璃控件（Dock 图标底、按钮）：比方形面板多一层更强的顶部高光，贴近液态珠子质感。 */
       html[data-skin="liquidglass"] .sully-lg-pill {
-        background: rgba(var(--lg-tint), 0.5);
-        -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
-        backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
+        position: relative;
+        overflow: hidden;
+        isolation: isolate;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.10) 58%, rgba(255, 255, 255, 0.16)),
+          rgba(var(--lg-tint), 0.12);
+        -webkit-backdrop-filter: blur(30px) saturate(145%) contrast(104%);
+        backdrop-filter: blur(30px) saturate(145%) contrast(104%);
         border: 1px solid var(--lg-border);
-        box-shadow: var(--lg-shadow);
+        box-shadow: 0 9px 28px rgba(8, 25, 48, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.76), inset 0 -12px 28px rgba(255, 255, 255, 0.05);
         transition: transform 0.35s cubic-bezier(0.34, 1.4, 0.4, 1), box-shadow 0.35s ease;
       }
       /* 滚动收缩形变：由 JS（utils/liquidGlassScroll）根据滚动方向/速度切换这个类，
@@ -224,7 +251,14 @@
         pointer-events: none;
       }
       html[data-skin="liquidglass"] .sully-lg-glow.sully-lg-glow-active::after {
+        inset: 0;
+        z-index: 0;
+        border: 0;
+        background: radial-gradient(120px circle at var(--lg-pointer-x, 50%) var(--lg-pointer-y, 50%), rgba(255, 255, 255, 0.38), transparent 70%);
         opacity: 1;
+      }
+      html[data-skin="liquidglass"] .sully-chat-header.sully-lg-surface {
+        overflow: visible;
       }
       /* 原位展开动效：弹窗/菜单出现时从触发点“漫开”，而非从屏幕中心弹出。
          JS 在打开前把 --lg-origin-x/y 设为触发元素坐标，这里只消费变量做 transform-origin。 */
@@ -236,65 +270,99 @@
         from { opacity: 0; transform: scale(0.85); }
         to { opacity: 1; transform: scale(1); }
       }
-      /* 图标基底：低饱和半透明玻璃 + 单一顶部高光，取消描边与厚重投影，贴近 iOS 26 图标规范。 */
+      /* 图标玻璃：更薄、更透，避免每个图标都变成白色实心方块。 */
       html[data-skin="liquidglass"] .sully-lg-icon {
-        background: rgba(var(--lg-tint), 0.65);
-        -webkit-backdrop-filter: blur(12px) saturate(160%);
-        backdrop-filter: blur(12px) saturate(160%);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 10px rgba(0, 0, 0, 0.08);
+        position: relative;
+        overflow: hidden;
+        isolation: isolate;
+        background: rgba(var(--lg-tint), 0.24);
+        -webkit-backdrop-filter: blur(22px) saturate(138%) contrast(104%);
+        backdrop-filter: blur(22px) saturate(138%) contrast(104%);
+        border: 1px solid rgba(255, 255, 255, 0.34);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.70), inset 0 -8px 16px rgba(255, 255, 255, 0.05), 0 3px 12px rgba(8, 25, 48, 0.10);
+      }
+      html[data-skin="liquidglass"] .sully-lg-icon::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(145deg, rgba(255, 255, 255, 0.40), transparent 30%, transparent 72%, rgba(255, 255, 255, 0.12));
+        pointer-events: none;
+        z-index: 0;
+      }
+      html[data-skin="liquidglass"] .sully-lg-icon > * {
+        position: relative;
+        z-index: 1;
+      }
+      html[data-skin="liquidglass"] .sully-lg-dock {
+        min-height: 82px;
+        border-radius: 30px;
+      }
+      html[data-skin="liquidglass"] .sully-lg-dock > [data-launcher-item] {
+        width: 25%;
+        display: flex;
+        justify-content: center;
+      }
+      html[data-skin="liquidglass"] .sully-lg-dock .sully-lg-icon {
+        background: rgba(var(--lg-tint), 0.32);
+        -webkit-backdrop-filter: blur(24px) saturate(142%);
+        backdrop-filter: blur(24px) saturate(142%);
       }
       html[data-skin="liquidglass"] .sully-liquidglass-backdrop {
-        background: rgba(10, 11, 18, 0.18);
-        -webkit-backdrop-filter: blur(2px) saturate(120%);
-        backdrop-filter: blur(2px) saturate(120%);
+        background: rgba(255, 255, 255, 0.035);
+        -webkit-backdrop-filter: blur(2px) saturate(112%);
+        backdrop-filter: blur(2px) saturate(112%);
       }
-      /* 应用自身内容层仍由各 App 控制背景；只让壁纸在 Chrome 缝隙透出，不给正文统一加玻璃。 */
+      /* 应用内容仍由各 App 控制；手机壳和桌面不再叠加主题色背景。 */
 
       html[data-skin="liquidglass"] .sully-liquidglass-shell {
         color: rgba(255, 255, 255, 0.94);
       }
       html[data-skin="liquidglass"] .sully-liquidglass-settings {
         background: transparent !important;
-        color: rgba(255, 255, 255, 0.92);
+        color: rgba(15, 23, 42, 0.88);
       }
       html[data-skin="liquidglass"] .sully-liquidglass-settings > div:first-child,
       html[data-skin="liquidglass"] .sully-liquidglass-settings > div:nth-child(2) {
-        background: rgba(var(--lg-tint), 0.46) !important;
-        -webkit-backdrop-filter: blur(24px) saturate(170%);
-        backdrop-filter: blur(24px) saturate(170%);
-        border-color: var(--lg-border) !important;
+        background: rgba(255, 255, 255, 0.12) !important;
+        -webkit-backdrop-filter: blur(32px) saturate(140%) contrast(104%);
+        backdrop-filter: blur(32px) saturate(140%) contrast(104%);
+        border-color: rgba(255, 255, 255, 0.36) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
       }
       html[data-skin="liquidglass"] .sully-liquidglass-settings section {
-        background: rgba(var(--lg-tint), 0.42) !important;
-        border-color: rgba(255, 255, 255, 0.13) !important;
-        box-shadow: 0 8px 26px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-        -webkit-backdrop-filter: blur(20px) saturate(160%);
-        backdrop-filter: blur(20px) saturate(160%);
+        background: rgba(255, 255, 255, 0.16) !important;
+        border-color: rgba(255, 255, 255, 0.38) !important;
+        color: rgba(15, 23, 42, 0.88);
+        box-shadow: 0 8px 26px rgba(8, 25, 48, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.70), inset 0 -16px 32px rgba(255, 255, 255, 0.05);
+        -webkit-backdrop-filter: blur(30px) saturate(140%) contrast(104%);
+        backdrop-filter: blur(30px) saturate(140%) contrast(104%);
       }
       html[data-skin="liquidglass"] .sully-liquidglass-settings h1,
       html[data-skin="liquidglass"] .sully-liquidglass-settings h2,
       html[data-skin="liquidglass"] .sully-liquidglass-settings h3,
       html[data-skin="liquidglass"] .sully-liquidglass-settings span,
       html[data-skin="liquidglass"] .sully-liquidglass-settings label {
-        color: rgba(255, 255, 255, 0.88);
+        color: rgba(15, 23, 42, 0.90);
       }
       html[data-skin="liquidglass"] .sully-liquidglass-settings p,
       html[data-skin="liquidglass"] .sully-liquidglass-settings .text-slate-400,
       html[data-skin="liquidglass"] .sully-liquidglass-settings .text-slate-500 {
-        color: rgba(255, 255, 255, 0.58) !important;
+        color: rgba(51, 65, 85, 0.70) !important;
       }
       html[data-skin="liquidglass"] .sully-liquidglass-settings input,
       html[data-skin="liquidglass"] .sully-liquidglass-settings textarea,
       html[data-skin="liquidglass"] .sully-liquidglass-settings select {
-        background: rgba(255, 255, 255, 0.10) !important;
-        color: rgba(255, 255, 255, 0.92) !important;
-        border-color: rgba(255, 255, 255, 0.18) !important;
-        -webkit-backdrop-filter: blur(16px) saturate(150%);
-        backdrop-filter: blur(16px) saturate(150%);
+        background: rgba(255, 255, 255, 0.20) !important;
+        color: rgba(15, 23, 42, 0.92) !important;
+        border-color: rgba(255, 255, 255, 0.44) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(132%);
+        backdrop-filter: blur(20px) saturate(132%);
       }
       html[data-skin="liquidglass"] .sully-liquidglass-settings button:not([class*="bg-red"]):not([class*="bg-emerald"]):not([class*="bg-violet"]):not([class*="bg-blue"]) {
-        background-color: rgba(255, 255, 255, 0.10);
-        border-color: rgba(255, 255, 255, 0.16);
+        background-color: rgba(255, 255, 255, 0.16);
+        border-color: rgba(255, 255, 255, 0.34);
+        color: rgba(15, 23, 42, 0.84);
       }
       /* Echoes 只让 Chrome 用玻璃；世界正文、档案内容和用户自定义世界主题不覆盖。 */
       html[data-skin="liquidglass"] .echoes-root > header,
@@ -303,20 +371,20 @@
         -webkit-backdrop-filter: blur(24px) saturate(175%);
         backdrop-filter: blur(24px) saturate(175%);
       }
-      /* 系统通用 Modal：内容卡片采用浅色玻璃，不把正文强行染成黑底。 */
+      /* 系统通用 Modal：厚度更高，但仍让用户壁纸透过来。 */
       html[data-skin="liquidglass"] .sully-global-modal-card {
-        background: rgba(42, 42, 46, 0.78) !important;
-        color: rgba(255, 255, 255, 0.92) !important;
-        border-color: rgba(255, 255, 255, 0.18) !important;
-        -webkit-backdrop-filter: blur(32px) saturate(180%);
-        backdrop-filter: blur(32px) saturate(180%);
-        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0.16)) !important;
+        color: rgba(15, 23, 42, 0.92) !important;
+        border-color: rgba(255, 255, 255, 0.52) !important;
+        -webkit-backdrop-filter: blur(38px) saturate(148%) contrast(106%);
+        backdrop-filter: blur(38px) saturate(148%) contrast(106%);
+        box-shadow: 0 24px 70px rgba(8, 25, 48, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82), inset 0 -20px 42px rgba(255, 255, 255, 0.06);
       }
       html[data-skin="liquidglass"] .sully-global-modal-card h3,
       html[data-skin="liquidglass"] .sully-global-modal-card p,
       html[data-skin="liquidglass"] .sully-global-modal-card span,
       html[data-skin="liquidglass"] .sully-global-modal-card label {
-        color: rgba(255, 255, 255, 0.88) !important;
+        color: rgba(15, 23, 42, 0.88) !important;
       }
       @media (prefers-reduced-motion: reduce) {
         html[data-skin="liquidglass"] .sully-lg-surface,
@@ -326,7 +394,196 @@
         }
         html[data-skin="liquidglass"] .sully-lg-modal { animation: none !important; }
       }
-      /* 低性能设备/低电量模式由 JS 加 .sully-lg-lite，主动降低模糊半径与阴影。 */
+      /* 原生式桌面层：图标与标签只使用统一几何，不给壁纸增加主题色。 */
+      html[data-skin="liquidglass"] .sully-lg-home {
+        color: rgba(255, 255, 255, 0.96);
+      }
+      html[data-skin="liquidglass"] .sully-lg-home-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-auto-rows: minmax(84px, auto);
+        column-gap: 8px;
+        row-gap: 13px;
+        align-items: start;
+      }
+      html[data-skin="liquidglass"] .sully-lg-home-cell {
+        min-width: 0;
+        display: flex;
+        justify-content: center;
+      }
+      html[data-skin="liquidglass"] .sully-lg-home-cell > button,
+      html[data-skin="liquidglass"] .sully-lg-folder-cell {
+        width: 100%;
+        min-width: 0;
+      }
+      html[data-skin="liquidglass"] .sully-lg-home-label {
+        max-width: 100%;
+        overflow: hidden;
+        color: rgba(255, 255, 255, 0.96);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.15;
+        text-align: center;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.34);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      html[data-skin="liquidglass"] .sully-lg-folder-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 60px;
+        height: 60px;
+        padding: 8px;
+      }
+      html[data-skin="liquidglass"] .sully-lg-folder-mini-grid {
+        display: grid;
+        width: 100%;
+        height: 100%;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-rows: repeat(3, minmax(0, 1fr));
+        gap: 3px;
+      }
+      html[data-skin="liquidglass"] .sully-lg-folder-mini {
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.30);
+        color: rgba(255, 255, 255, 0.90);
+      }
+      html[data-skin="liquidglass"] .sully-lg-folder-mini svg {
+        width: 70%;
+        height: 70%;
+      }
+      html[data-skin="liquidglass"] .sully-lg-home-search-row {
+        display: flex;
+        justify-content: center;
+        padding: 8px 0 9px;
+      }
+      html[data-skin="liquidglass"] .sully-lg-page-dots {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 16px;
+      }
+      html[data-skin="liquidglass"] .sully-lg-page-dots span {
+        display: block;
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.52);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+        transition: width 0.25s ease, background 0.25s ease;
+      }
+      html[data-skin="liquidglass"] .sully-lg-page-dots span.active {
+        width: 18px;
+        background: rgba(255, 255, 255, 0.90);
+      }
+      html[data-skin="liquidglass"] .sully-lg-search-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 34px;
+        padding: 0 15px;
+        border-radius: 999px;
+        color: rgba(255, 255, 255, 0.94);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      html[data-skin="liquidglass"] .sully-lg-dock-wrap {
+        flex: 0 0 auto;
+        padding: 0 0 calc(1.25rem + var(--safe-bottom));
+      }
+      html[data-skin="liquidglass"] .sully-lg-overlay {
+        background: rgba(16, 24, 38, 0.12);
+        -webkit-backdrop-filter: blur(9px) saturate(115%);
+        backdrop-filter: blur(9px) saturate(115%);
+      }
+      html[data-skin="liquidglass"] .sully-lg-folder-sheet,
+      html[data-skin="liquidglass"] .sully-lg-search-sheet {
+        color: rgba(15, 23, 42, 0.92);
+      }
+      html[data-skin="liquidglass"] .sully-lg-search-input-wrap {
+        background: rgba(255, 255, 255, 0.24);
+        border: 1px solid rgba(255, 255, 255, 0.42);
+        color: rgba(15, 23, 42, 0.76);
+      }
+      html[data-skin="liquidglass"] .sully-lg-search-input-wrap input {
+        color: rgba(15, 23, 42, 0.92);
+      }
+      html[data-skin="liquidglass"] .sully-lg-search-input-wrap input::placeholder {
+        color: rgba(15, 23, 42, 0.45);
+      }
+      /* 视觉修正：Chrome 里的文字必须服从玻璃层对比度；世界正文不受影响。 */
+      html[data-skin="liquidglass"] .sully-echoes-chrome {
+        color: rgba(15, 23, 42, 0.88);
+      }
+      html[data-skin="liquidglass"] .sully-echoes-chrome h1,
+      html[data-skin="liquidglass"] .sully-echoes-chrome header button,
+      html[data-skin="liquidglass"] .sully-echoes-chrome textarea {
+        color: rgba(15, 23, 42, 0.92) !important;
+      }
+      html[data-skin="liquidglass"] .sully-echoes-chrome textarea::placeholder {
+        color: rgba(15, 23, 42, 0.45) !important;
+      }
+      html[data-skin="liquidglass"] .sully-echoes-chrome textarea {
+        background: rgba(255, 255, 255, 0.18) !important;
+        border-color: rgba(255, 255, 255, 0.42) !important;
+      }
+      html[data-skin="liquidglass"] .sully-echoes-chrome nav button,
+      html[data-skin="liquidglass"] .sully-echoes-chrome > nav button {
+        color: rgba(15, 23, 42, 0.76) !important;
+      }
+      html[data-skin="liquidglass"] .sully-echoes-chrome nav button[aria-current="page"],
+      html[data-skin="liquidglass"] .sully-echoes-chrome nav button[data-active="true"] {
+        color: var(--primary-color, #6d4aff) !important;
+      }
+      html[data-skin="liquidglass"] .sully-chat-header .sully-chat-name,
+      html[data-skin="liquidglass"] .sully-chat-header .sully-chat-back,
+      html[data-skin="liquidglass"] .sully-chat-header .sully-chat-trigger,
+      html[data-skin="liquidglass"] .sully-chat-header .sully-chat-status {
+        color: rgba(15, 23, 42, 0.90) !important;
+      }
+      html[data-skin="liquidglass"] .sully-chat-inputbar textarea {
+        color: rgba(15, 23, 42, 0.92) !important;
+        caret-color: rgba(15, 23, 42, 0.92);
+      }
+      html[data-skin="liquidglass"] .sully-chat-inputbar textarea::placeholder {
+        color: rgba(15, 23, 42, 0.45) !important;
+      }
+      html[data-skin="liquidglass"] .sully-chat-inputbar .sully-lg-surface {
+        color: rgba(15, 23, 42, 0.90);
+      }
+      html[data-skin="liquidglass"] .sully-chat-inputbar .sully-lg-pill {
+        color: rgba(15, 23, 42, 0.86);
+      }
+      html[data-skin="liquidglass"] .echoes-root .sully-echoes-chrome nav button {
+        color: rgba(15, 23, 42, 0.78) !important;
+      }
+      html[data-skin="liquidglass"] .echoes-root .sully-echoes-chrome textarea {
+        color: rgba(15, 23, 42, 0.92) !important;
+      }
+
+      /* SettingsSection 的标题按钮只是结构控件，不应被通用玻璃按钮规则变成内嵌矩形灰条。 */
+      html[data-skin="liquidglass"] .sully-liquidglass-settings section > div:first-child > button {
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+      }
+      html[data-skin="liquidglass"] .sully-liquidglass-settings section > div:first-child > button:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+      }
+      html[data-skin="liquidglass"] .sully-liquidglass-settings section > div:first-child > button h2 {
+        color: rgba(15, 23, 42, 0.90) !important;
+      }
+
       html[data-skin="liquidglass"].sully-lg-lite {
         --lg-blur: 14px;
         --lg-saturate: 135%;

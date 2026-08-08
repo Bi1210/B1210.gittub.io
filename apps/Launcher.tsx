@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
 import { isPaperWallpaper, useOS } from '../context/OSContext';
-import { INSTALLED_APPS, DOCK_APPS } from '../constants';
+import { INSTALLED_APPS, DOCK_APPS, Icons } from '../constants';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../utils/devDebug';
 import AppIcon from '../components/os/AppIcon';
 import { DB } from '../utils/db';
@@ -13,6 +13,7 @@ import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { trackEvent } from '../utils/analytics';
+import { MagnifyingGlass } from '@phosphor-icons/react';
 
 // --- Isolated Components to prevent full re-renders ---
 
@@ -464,6 +465,207 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     );
 });
 
+type LiquidGlassHomeItem =
+    | { kind: 'app'; app: typeof INSTALLED_APPS[number] }
+    | { kind: 'folder'; id: string; name: string; apps: typeof INSTALLED_APPS };
+
+const LIQUID_GLASS_FOLDER_DEFS: Array<{ id: string; name: string; apps: AppID[] }> = [
+    { id: 'life', name: '生活', apps: [AppID.Date, AppID.Journal, AppID.Schedule, AppID.Room] },
+    { id: 'world', name: '世界', apps: [AppID.Worldbook, AppID.VRWorld, AppID.WorldHome, AppID.SpecialMoments] },
+    { id: 'create', name: '创作', apps: [AppID.Novel, AppID.Songwriting, AppID.ThemeMaker, AppID.Gallery] },
+    { id: 'tools', name: '工具', apps: [AppID.Appearance, AppID.FAQ, AppID.Guidebook, AppID.Browser] },
+    { id: 'ai', name: '智能', apps: [AppID.Character, AppID.MemoryPalace, AppID.LifeSim, AppID.CheckPhone] },
+    { id: 'media', name: '影音', apps: [AppID.Music, AppID.Game, AppID.HotNews, AppID.XhsFreeRoam] },
+    { id: 'more', name: '更多', apps: [AppID.Bank, AppID.XhsStock, AppID.VoiceDesigner, AppID.CharCreatorDev] },
+];
+
+const LiquidGlassMiniIcon: React.FC<{ app: typeof INSTALLED_APPS[number] }> = ({ app }) => {
+    const IconComponent = Icons[app.icon] || Icons.Settings;
+    return (
+        <div className="sully-lg-folder-mini" aria-hidden="true">
+            <IconComponent className="h-full w-full" />
+        </div>
+    );
+};
+
+const LiquidGlassHome: React.FC<{
+    apps: typeof INSTALLED_APPS;
+    allApps: typeof INSTALLED_APPS;
+    dockApps: typeof INSTALLED_APPS;
+    openApp: (id: AppID) => void;
+    totalUnread: number;
+    widgetPage?: React.ReactNode;
+    onBeginEditing: () => void;
+}> = ({ apps, allApps, dockApps, openApp, totalUnread, widgetPage, onBeginEditing }) => {
+    const [openFolder, setOpenFolder] = useState<LiquidGlassHomeItem | null>(null);
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [homePage, setHomePage] = useState(0);
+    const pageScrollerRef = useRef<HTMLDivElement>(null);
+    const editTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => () => {
+        if (editTimer.current) clearTimeout(editTimer.current);
+    }, []);
+
+    const items = useMemo<LiquidGlassHomeItem[]>(() => {
+        const byId = new Map(apps.map(app => [app.id, app]));
+        const directIds = [AppID.Echoes, AppID.Gallery, AppID.Date, AppID.Music, AppID.Novel, AppID.Study, AppID.Game, AppID.Appearance, AppID.Character, AppID.Room, AppID.User, AppID.Songwriting];
+        const used = new Set<AppID>();
+        const direct: LiquidGlassHomeItem[] = directIds
+            .map(id => byId.get(id))
+            .filter((app): app is typeof INSTALLED_APPS[number] => !!app)
+            .map(app => { used.add(app.id); return { kind: 'app', app }; });
+        const folders: LiquidGlassHomeItem[] = LIQUID_GLASS_FOLDER_DEFS.map(def => {
+            const folderApps = def.apps
+                .filter(id => !used.has(id))
+                .map(id => byId.get(id))
+                .filter((app): app is typeof INSTALLED_APPS[number] => !!app);
+            folderApps.forEach(app => used.add(app.id));
+            return folderApps.length > 0 ? { kind: 'folder', id: def.id, name: def.name, apps: folderApps } : null;
+        }).filter((item): item is LiquidGlassHomeItem => !!item);
+        const remaining = apps.filter(app => !used.has(app.id));
+        if (remaining.length > 0) folders.push({ kind: 'folder', id: 'other', name: '更多', apps: remaining });
+        return [...direct, ...folders];
+    }, [apps]);
+
+    const searchResults = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return allApps;
+        return allApps.filter(app => `${app.name} ${app.id}`.toLowerCase().includes(q));
+    }, [allApps, query]);
+
+    const startEditPress = () => {
+        if (editTimer.current) clearTimeout(editTimer.current);
+        editTimer.current = setTimeout(onBeginEditing, 650);
+    };
+    const clearEditPress = () => {
+        if (editTimer.current) clearTimeout(editTimer.current);
+        editTimer.current = null;
+    };
+
+    const renderDock = () => (
+        <div className="sully-lg-dock-wrap">
+            <div
+                className="sully-lg-pill sully-lg-glow sully-lg-chrome sully-lg-dock rounded-[1.75rem] w-[calc(100vw-2rem)] px-2.5 py-2.5 flex gap-0 items-center mx-auto justify-around overflow-x-auto no-scrollbar transform-gpu"
+                onPointerMove={(event) => {
+                    const target = event.currentTarget;
+                    const rect = target.getBoundingClientRect();
+                    target.style.setProperty('--lg-pointer-x', `${((event.clientX - rect.left) / rect.width) * 100}%`);
+                    target.style.setProperty('--lg-pointer-y', `${((event.clientY - rect.top) / rect.height) * 100}%`);
+                    target.classList.add('sully-lg-glow-active');
+                }}
+                onPointerLeave={(event) => event.currentTarget.classList.remove('sully-lg-glow-active')}
+            >
+                {dockApps.map(app => (
+                    <div key={app.id} data-launcher-item={app.id} className="relative flex w-1/4 justify-center">
+                        <AppIcon app={app} onClick={() => openApp(app.id)} variant="dock" size="md" />
+                        {app.id === AppID.Chat && totalUnread > 0 && (
+                            <div className="absolute -right-1 -top-2 min-w-7 h-7 px-1.5 rounded-full border-2 border-white/35 bg-red-500 text-[12px] font-bold text-white shadow-sm flex items-center justify-center pointer-events-none">
+                                {totalUnread > 99 ? '99+' : totalUnread}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    return (
+        <div
+            className="sully-lg-home relative z-10 flex h-full min-h-0 w-full flex-col overflow-hidden select-none"
+            onPointerDown={startEditPress}
+            onPointerUp={clearEditPress}
+            onPointerCancel={clearEditPress}
+            onContextMenu={(event) => event.preventDefault()}
+        >
+            <div
+                ref={pageScrollerRef}
+                className="min-h-0 flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar"
+                onScroll={(event) => {
+                    const target = event.currentTarget;
+                    setHomePage(Math.round(target.scrollLeft / Math.max(1, target.clientWidth)));
+                }}
+            >
+                <section className="w-full flex-shrink-0 snap-center min-h-0">
+                    <div className="h-full overflow-y-auto overscroll-contain no-scrollbar px-4 pt-[4.4rem]">
+                        <div className="sully-lg-home-grid mx-auto max-w-[430px]">
+                            {items.map(item => item.kind === 'app' ? (
+                                <div key={item.app.id} className="sully-lg-home-cell">
+                                    <AppIcon app={item.app} onClick={() => openApp(item.app.id)} size="md" />
+                                </div>
+                            ) : (
+                                <div key={item.id} className="sully-lg-home-cell">
+                                    <div
+                                        className="sully-lg-folder-cell flex flex-col items-center gap-1.5"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => setOpenFolder(item)}
+                                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setOpenFolder(item); }}
+                                    >
+                                        <div className="sully-lg-icon sully-lg-folder-icon sully-lg-glow rounded-[22%]">
+                                            <div className="sully-lg-folder-mini-grid">
+                                                {item.apps.slice(0, 9).map(app => <LiquidGlassMiniIcon key={app.id} app={app} />)}
+                                            </div>
+                                        </div>
+                                        <span className="sully-lg-home-label">{item.name}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+                {widgetPage && <section className="w-full flex-shrink-0 snap-center min-h-0 overflow-hidden">{widgetPage}</section>}
+            </div>
+
+            {widgetPage && (
+                <div className="sully-lg-page-dots" aria-label="桌面页面">
+                    <span className={homePage === 0 ? 'active' : ''} />
+                    <span className={homePage === 1 ? 'active' : ''} />
+                </div>
+            )}
+
+            <div className="sully-lg-home-search-row">
+                <button className="sully-lg-pill sully-lg-search-pill" onClick={() => { setSearchOpen(true); setQuery(''); }}>
+                    <MagnifyingGlass size={16} weight="bold" />
+                    <span>搜索</span>
+                </button>
+            </div>
+            {renderDock()}
+
+            {openFolder && openFolder.kind === 'folder' && (
+                <div className="sully-lg-overlay absolute inset-0 z-50 flex items-start justify-center px-4 pt-[calc(var(--safe-top)+5rem)]" onClick={() => setOpenFolder(null)}>
+                    <div className="sully-lg-surface sully-lg-folder-sheet w-full max-w-[360px] rounded-[30px] p-5" onClick={(event) => event.stopPropagation()}>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h2 className="text-base font-semibold text-slate-900">{openFolder.name}</h2>
+                            <button className="sully-lg-pill flex h-8 w-8 items-center justify-center rounded-full text-slate-700" onClick={() => setOpenFolder(null)} aria-label="关闭文件夹">×</button>
+                        </div>
+                        <div className="grid grid-cols-4 gap-x-2 gap-y-5">
+                            {openFolder.apps.map(app => <AppIcon key={app.id} app={app} onClick={() => { setOpenFolder(null); openApp(app.id); }} size="md" />)}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {searchOpen && (
+                <div className="sully-lg-overlay absolute inset-0 z-[60] flex items-start justify-center px-4 pt-[calc(var(--safe-top)+3.5rem)]" onClick={() => setSearchOpen(false)}>
+                    <div className="sully-lg-surface sully-lg-search-sheet w-full max-w-[390px] rounded-[30px] p-4" onClick={(event) => event.stopPropagation()}>
+                        <div className="sully-lg-search-input-wrap mb-3 flex items-center gap-2 rounded-2xl px-3 py-2.5">
+                            <MagnifyingGlass size={17} weight="bold" />
+                            <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 App" className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+                            <button onClick={() => setSearchOpen(false)} className="text-xl leading-none opacity-60" aria-label="关闭搜索">×</button>
+                        </div>
+                        <div className="max-h-[55vh] overflow-y-auto">
+                            {searchResults.map(app => <div key={app.id} role="button" tabIndex={0} onClick={() => { setSearchOpen(false); openApp(app.id); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { setSearchOpen(false); openApp(app.id); } }} className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left hover:bg-white/30"><AppIcon app={app} onClick={() => {}} size="sm" hideLabel /><span className="text-sm text-slate-900">{app.name}</span></div>)}
+                            {searchResults.length === 0 && <div className="p-8 text-center text-sm text-slate-600">没有找到应用</div>}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- Persist scroll page across remounts (e.g. returning from apps) ---
 let _lastPageIndex = 0;
 
@@ -578,7 +780,8 @@ const Launcher: React.FC = () => {
   // Split apps into pages of 8 (4 cols x 2 rows fit comfortably below widget)
   // Pages: 0 = clock+chat+music+grid (original), 1 = pinwheel, 2 = widget images + grid,
   //        3+ = plain grid. Pad to at least 3 slots so the pinwheel/widget pages always exist.
-  const APPS_PER_PAGE = 8;
+  // Liquid Glass 桌面优先遵循原生主屏：四列、每页最多五行；其他皮肤保留原有小组件布局。
+  const APPS_PER_PAGE = theme.skin === 'liquidglass' ? 20 : 8;
   const appPages = useMemo(() => {
       const pages: typeof INSTALLED_APPS[] = [];
       for (let i = 0; i < gridApps.length; i += APPS_PER_PAGE) {
@@ -933,6 +1136,21 @@ const Launcher: React.FC = () => {
     return <TamagotchiHome />;
   }
 
+  // Liquid Glass 首页采用原生式图标网格；长按进入原有布局编辑器，保留拖动排序与全部小组件页。
+  if (liquidGlass && !layoutEditing) {
+    return (
+      <LiquidGlassHome
+        apps={gridApps}
+        allApps={INSTALLED_APPS.filter(app => app.id !== AppID.CharCreatorDev || devDebugVisible)}
+        dockApps={dockAppsConfig}
+        openApp={openApp}
+        totalUnread={totalUnread}
+        widgetPage={<WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters} />}
+        onBeginEditing={() => setLayoutEditing(true)}
+      />
+    );
+  }
+
   return (
     <div
       className={`h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none ${liquidGlass ? 'sully-liquidglass-launcher' : ''}`}
@@ -979,7 +1197,8 @@ const Launcher: React.FC = () => {
       
       {/* Visual Elements (Decorative Background - Static, low-cost gradients instead of blur) */}
       {/* 动森模式跳过：这层冷蓝光斑会污染奶油底 */}
-      {!acnh && (
+      {/* Liquid Glass 不再叠加主题光斑；底层颜色完全来自用户壁纸。 */}
+      {!acnh && !liquidGlass && (
       <div className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full" style={{ background: paper ? 'radial-gradient(circle, rgba(255,255,255,0.22) 0%, transparent 68%)' : 'radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%)' }}></div>
           <div className="absolute -bottom-20 -left-20 w-80 h-80 rounded-full" style={{ background: paper ? 'radial-gradient(circle, rgba(123,104,78,0.06) 0%, transparent 68%)' : 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%)' }}></div>
@@ -1012,7 +1231,7 @@ const Launcher: React.FC = () => {
           {appPages.map((pageApps, idx) => (
               <div
                 key={idx}
-                className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-12 pb-8 h-full"
+                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col ${liquidGlass ? 'px-4' : 'px-6'} pt-12 pb-8 h-full`}
                 style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
               >
                   {idx === 0 ? (
@@ -1168,7 +1387,17 @@ const Launcher: React.FC = () => {
            style={{ paddingBottom: launcherBottomInset }}
       >
            <div
-             className={`rounded-[1.75rem] px-4 py-3 flex gap-3 sm:gap-6 items-center mx-auto max-w-full justify-between overflow-x-auto no-scrollbar transform-gpu ${liquidGlass ? 'sully-lg-pill sully-lg-chrome' : acnh || paper ? '' : 'bg-white/30 border border-white/25 shadow-[0_8px_40px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.08)]'}`}
+             className={liquidGlass
+               ? 'sully-lg-pill sully-lg-glow sully-lg-chrome sully-lg-dock rounded-[1.75rem] w-[calc(100vw-2rem)] px-2.5 py-2.5 flex gap-0 items-center mx-auto justify-around overflow-x-auto no-scrollbar transform-gpu'
+               : `rounded-[1.75rem] px-4 py-3 flex gap-3 sm:gap-6 items-center mx-auto max-w-full justify-between overflow-x-auto no-scrollbar transform-gpu ${acnh || paper ? '' : 'bg-white/30 border border-white/25 shadow-[0_8px_40px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.08)]'}`}
+             onPointerMove={liquidGlass ? (event) => {
+               const target = event.currentTarget;
+               const rect = target.getBoundingClientRect();
+               target.style.setProperty('--lg-pointer-x', `${((event.clientX - rect.left) / rect.width) * 100}%`);
+               target.style.setProperty('--lg-pointer-y', `${((event.clientY - rect.top) / rect.height) * 100}%`);
+               target.classList.add('sully-lg-glow-active');
+             } : undefined}
+             onPointerLeave={liquidGlass ? (event) => event.currentTarget.classList.remove('sully-lg-glow-active') : undefined}
              style={acnh ? { background: 'transparent' } : paper ? {
                background: 'rgba(224,221,215,0.42)',
                border: '1px solid rgba(91,72,51,0.07)',
@@ -1179,7 +1408,7 @@ const Launcher: React.FC = () => {
                    <div key={app.id} data-launcher-item={app.id} data-launcher-kind="dock" className={`relative ${layoutEditing ? 'launcher-edit-item' : ''}`}>
                         <AppIcon app={app} onClick={() => { if (!layoutEditing) openApp(app.id); }} variant="dock" size="md" />
                         {app.id === 'chat' && totalUnread > 0 && (
-                            <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-[9px] flex items-center justify-center border-2 border-white/20 shadow-sm font-bold pointer-events-none animate-pop-in">
+                            <div className={`absolute -top-2 -right-2 ${liquidGlass ? 'min-w-[1.75rem] h-7 px-1.5 text-[12px]' : 'w-5 h-5 text-[9px]'} bg-red-500 rounded-full text-white flex items-center justify-center border-2 border-white/35 shadow-sm font-bold pointer-events-none animate-pop-in`}>
                                 {totalUnread > 9 ? '9+' : totalUnread}
                             </div>
                         )}

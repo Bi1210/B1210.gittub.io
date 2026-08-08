@@ -11,8 +11,10 @@ import { extractContent, extractJson, safeResponseJson } from '../utils/safeApi'
 import {
     EchoesContentBlock, EchoesFormat, EchoesLayout, EchoesMode, EchoesQualityMode, EchoesState,
     EchoesTheme, EchoesTurn, EchoesUIProfile, EchoesWorld, EchoesWritingGuide, EchoesProtocolConfig,
+    ApiPreset, APIConfig, EchoesApiConfig, EchoesApiCallLogEntry,
 } from '../types';
 import EchoesContentRenderer from '../components/echoes/EchoesContentRenderer';
+import EchoesApiSettings from '../components/echoes/EchoesApiSettings';
 
 const ALL_FORMATS: EchoesFormat[] = [
     'text', 'markdown', 'html', 'latex', 'code', 'json', 'xml', 'yaml', 'csv', 'tsv',
@@ -714,8 +716,9 @@ const getModeInstruction = (mode: EchoesMode): string => {
 };
 
 const EchoesApp: React.FC = () => {
-    const { closeApp, apiConfig, addToast } = useOS();
+    const { closeApp, apiConfig, apiPresets, addToast } = useOS();
     const [view, setView] = useState<'lobby' | 'create' | 'play'>('lobby');
+    const [showApiSettings, setShowApiSettings] = useState(false);
     const [worlds, setWorlds] = useState<EchoesWorld[]>([]);
     const [activeWorld, setActiveWorld] = useState<EchoesWorld | null>(null);
     const [loading, setLoading] = useState(true);
@@ -766,26 +769,53 @@ const EchoesApp: React.FC = () => {
 
     useEffect(() => { void loadWorlds(); }, [loadWorlds]);
 
-    const requestAI = useCallback(async (prompt: string, maxTokens = 5000): Promise<any> => {
-        if (!apiConfig.baseUrl || !apiConfig.apiKey) throw new Error('请先在设置中配置聊天 API');
-        const url = `${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const requestAI = useCallback(async (prompt: string, maxTokens = 5000, worldTitle = ''): Promise<any> => {
+        // Echoes 的配置存于本地 IndexedDB；独立配置优先，未设置时跟随聊天默认。
+        // 读取本地配置不会增加中转/API 请求次数，也能让设置页保存后立即生效。
+        let independent: EchoesApiConfig | null = null;
+        try { independent = await DB.getEchoesApiConfig(); } catch { /* 旧库/升级中的存档，回退聊天默认 */ }
+        const config = independent?.baseUrl ? independent : apiConfig;
+        if (!config?.baseUrl || !config?.model) throw new Error('请先在 Echoes API 设置中配置中转地址和模型');
+
+        const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+        const startedAt = Date.now();
         let lastError: unknown = null;
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-            const controller = new AbortController();
-            const timeout = window.setTimeout(() => controller.abort(), 120000);
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiConfig.apiKey}` },
-                    body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }], temperature: 0.86, max_tokens: maxTokens, stream: false }),
-                    signal: controller.signal,
-                });
-                if (!response.ok) throw new Error(`AI 请求失败（HTTP ${response.status}）`);
-                return await safeResponseJson(response);
-            } catch (error) {
-                lastError = error instanceof DOMException && error.name === 'AbortError' ? new Error('AI 请求超时') : error;
-                if (attempt === 0) await new Promise(resolve => window.setTimeout(resolve, 700));
-            } finally { window.clearTimeout(timeout); }
+        let succeeded = false;
+        try {
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                const controller = new AbortController();
+                const timeout = window.setTimeout(() => controller.abort(), 120000);
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({ model: config.model, messages: [{ role: 'user', content: prompt }], temperature: config.temperature ?? 0.86, max_tokens: maxTokens, stream: false }),
+                        signal: controller.signal,
+                    });
+                    if (!response.ok) throw new Error(`AI 请求失败（HTTP ${response.status}）`);
+                    const data = await safeResponseJson(response);
+                    succeeded = true;
+                    try {
+                        await DB.appendEchoesApiLog({ ts: Date.now(), ok: true, worldTitle: worldTitle || undefined, ms: Date.now() - startedAt });
+                    } catch (logError) {
+                        console.warn('[Echoes] API success log skipped:', logError);
+                    }
+                    return data;
+                } catch (error) {
+                    lastError = error instanceof DOMException && error.name === 'AbortError' ? new Error('AI 请求超时') : error;
+                    if (attempt === 0) await new Promise(resolve => window.setTimeout(resolve, 700));
+                } finally { window.clearTimeout(timeout); }
+            }
+        } finally {
+            if (lastError && !succeeded) {
+                try {
+                    await DB.appendEchoesApiLog({ ts: Date.now(), ok: false, worldTitle: worldTitle || undefined, ms: Date.now() - startedAt, errorMessage: lastError instanceof Error ? lastError.message : 'AI 请求失败' });
+                } catch (logError) {
+                    console.warn('[Echoes] API failure log skipped:', logError);
+                }
+            }
         }
         throw lastError instanceof Error ? lastError : new Error('AI 请求失败');
     }, [apiConfig]);
@@ -882,7 +912,7 @@ const EchoesApp: React.FC = () => {
 `不要因为新奇、意外、角色犯错或非模板化转折而判错；只要因果可以成立就通过。\n` +
 `只输出 JSON：{"pass":true,"issues":[],"repairInstructions":""}。不通过时 pass=false，并给出最多三条具体修复建议；不要重写正文。`;
         try {
-            const reviewData = await requestAI(reviewPrompt, 2600);
+            const reviewData = await requestAI(reviewPrompt, 2600, world.title);
             const review = extractJson(extractContent(reviewData) || '');
             const rejected = review && (review.pass === false || review.pass === 'false');
             if (!review || !rejected) return draftPayload;
@@ -892,7 +922,7 @@ const EchoesApp: React.FC = () => {
 `审查意见：${issues.join('；') || cleanText(review.repairInstructions) || '检查连续性、角色动机和玩家能动性'}\n` +
 `原始 JSON：\n${draftJson}\n\n` +
 `只输出修复后的完整故事 JSON，字段必须保持 chapter、statePatch、directorPatch、continuitySummary、newKnownFacts、hardFactsToLock、blocks、suggestions；不要代码围栏，不要解释。保留有价值的新人物、新线索和新转折，只修真正的问题。`;
-            const repairedData = await requestAI(repairPrompt, 6500);
+            const repairedData = await requestAI(repairPrompt, 6500, world.title);
             const repaired = unwrapPayload(extractJson(extractContent(repairedData) || ''));
             return repaired && (Array.isArray(repaired.blocks) || repaired.narrative || repaired.gm_narrative) ? repaired : draftPayload;
         } catch (error) {
@@ -930,7 +960,7 @@ const EchoesApp: React.FC = () => {
             hardFacts: [], knownFacts: [], turns: [], createdAt: now, updatedAt: now, lastPlayedAt: now, version: 1,
         };
         try {
-            const data = await requestAI(basePrompt(seed, '（开场）', true), 6500);
+            const data = await requestAI(basePrompt(seed, '（开场）', true), 6500, seed.title);
             const raw = extractContent(data) || '';
             let payload = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
             payload = await reviewPayload(seed, '（开场）', payload);
@@ -987,7 +1017,7 @@ const EchoesApp: React.FC = () => {
         generatingRef.current = true;
         setInput(''); setGenerating(true);
         try {
-            const data = await requestAI(basePrompt(baseWorld, action), 6500);
+            const data = await requestAI(basePrompt(baseWorld, action), 6500, baseWorld.title);
             const raw = extractContent(data) || '';
             let payload = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
             payload = await reviewPayload(baseWorld, action, payload);
@@ -1136,12 +1166,17 @@ const EchoesApp: React.FC = () => {
         </div>
     </>;
 
-    const renderLobby = () => <div className="flex h-full min-h-0 flex-col bg-[#101116] text-white" style={{ paddingTop: 'var(--safe-top)' }}>
-        <header className="flex items-center justify-between border-b border-white/10 px-5 py-4"><div><div className="text-2xl font-black tracking-[.12em]">Echoes</div><div className="mt-1 text-[10px] uppercase tracking-[.28em] text-white/40">adaptive narrative worlds</div></div><div className="flex gap-2"><button onClick={closeApp} className="rounded-xl p-2 text-white/60 hover:bg-white/10" aria-label="返回"><ArrowLeft size={21} /></button><button onClick={() => setView('create')} className="flex items-center gap-1 rounded-xl bg-violet-500 px-3 py-2 text-xs font-bold shadow-lg shadow-violet-500/20"><Plus size={16} /> 新建世界</button></div></header>
+    const renderApiSettings = () => <EchoesSheet open={showApiSettings} onClose={() => setShowApiSettings(false)} title="Echoes API" icon={<GearSix size={17} />} palette={{ panel: '#15161d', text: '#fff', border: 'rgba(255,255,255,.12)' }}>
+        <EchoesApiSettings apiPresets={apiPresets} chatApi={apiConfig} addToast={addToast} />
+    </EchoesSheet>;
+
+    const renderLobby = () => <div className="relative flex h-full min-h-0 flex-col bg-[#101116] text-white" style={{ paddingTop: 'var(--safe-top)' }}>
+        <header className="flex items-center justify-between border-b border-white/10 px-5 py-4"><div><div className="text-2xl font-black tracking-[.12em]">Echoes</div><div className="mt-1 text-[10px] uppercase tracking-[.28em] text-white/40">adaptive narrative worlds</div></div><div className="flex gap-2"><button onClick={closeApp} className="rounded-xl p-2 text-white/60 hover:bg-white/10" aria-label="返回"><ArrowLeft size={21} /></button><button onClick={() => setShowApiSettings(true)} className="rounded-xl p-2 text-white/60 hover:bg-white/10" aria-label="Echoes API 设置"><GearSix size={19} /></button><button onClick={() => setView('create')} className="flex items-center gap-1 rounded-xl bg-violet-500 px-3 py-2 text-xs font-bold shadow-lg shadow-violet-500/20"><Plus size={16} /> 新建世界</button></div></header>
         <div className="min-h-0 flex-1 overflow-y-auto p-5 pb-[calc(2rem+var(--safe-bottom,0px))]">
             <div className="mb-5 rounded-3xl border border-white/10 bg-gradient-to-br from-violet-500/20 to-cyan-500/10 p-5"><div className="mb-2 flex items-center gap-2 text-violet-200"><Sparkle size={18} weight="fill" /><span className="text-xs font-bold tracking-widest">Echoes</span></div><h1 className="text-xl font-bold leading-tight">在你定义的世界里，留下只属于你的回响。</h1><p className="mt-2 text-xs leading-relaxed text-white/55">自定义世界、身份、玩法与界面。AI负责创作，系统负责连续性；每个世界都有独立存档。</p></div>
             {loading ? <div className="flex items-center justify-center py-20 text-white/45"><CircleNotch className="animate-spin" size={22} /></div> : worlds.length === 0 ? <div className="rounded-3xl border border-dashed border-white/15 py-16 text-center text-white/45"><BookOpenText className="mx-auto mb-3" size={32} /><p className="text-sm">还没有 Echoes 世界</p><button onClick={() => setView('create')} className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-xs text-white hover:bg-white/15">创建第一个世界</button></div> : <div className="grid gap-3">{worlds.map(world => <div key={world.id} className="group relative rounded-2xl border border-white/10 bg-white/[.055] p-4 transition hover:bg-white/[.09]"><button onClick={() => openWorld(world)} className="block w-full text-left"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate text-base font-bold">{world.title}</h2><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/50">{world.worldSetting}</p></div><span className="shrink-0 rounded-lg bg-white/10 px-2 py-1 text-[10px] text-white/60">{modeLabel(world.mode)}</span></div><div className="mt-3 flex items-center gap-3 text-[10px] text-white/35"><span>{world.turns.length} 回合</span><span>·</span><span>{world.state.location}</span><span className="ml-auto">{new Date(world.lastPlayedAt).toLocaleDateString()}</span></div></button><button onClick={() => setConfirmDelete(world.id)} className="absolute right-3 bottom-3 rounded-lg p-1.5 text-white/20 opacity-0 transition hover:bg-red-500/20 hover:text-red-300 group-hover:opacity-100" aria-label="删除世界"><Trash size={14} /></button>{confirmDelete === world.id && <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-[#15161d]/95 p-4"><div className="text-center"><WarningCircle className="mx-auto mb-2 text-red-300" size={24} /><p className="text-xs">确定删除《{world.title}》？</p><div className="mt-3 flex justify-center gap-2"><button onClick={() => setConfirmDelete(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs">取消</button><button onClick={() => void deleteWorld(world.id)} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs">删除</button></div></div></div>}</div>)}</div>}
         </div>
+        {renderApiSettings()}
     </div>;
 
     const CREATE_STEPS = [
@@ -1395,7 +1430,7 @@ const EchoesApp: React.FC = () => {
         <button onClick={() => setShowRawState(v => !v)} className="flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[11px] opacity-65" style={{ borderColor: palette.border }}><span>查看原始状态数据</span><CaretDown size={14} style={{ transform: showRawState ? 'rotate(180deg)' : undefined }} /></button>{showRawState && <pre className="max-h-80 overflow-auto rounded-xl p-3 font-mono text-[10px] leading-relaxed" style={{ background: `${palette.panel}b8` }}>{JSON.stringify(activeWorld.state, null, 2)}</pre>}
     </div>;
 
-    const actionDock = activeTab === 'story' && <div className={`shrink-0 border-t px-3 pb-1.5 pt-1.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[24px] ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f8`, borderColor: palette.border }}>
+    const actionDock = activeTab === 'story' && <div className={`sully-echoes-chrome shrink-0 border-t px-3 pb-1.5 pt-1.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[24px] ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f8`, borderColor: palette.border }}>
         <div className="mx-auto max-w-2xl">
             {ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating && <div className="mb-1.5 space-y-1">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} onClick={() => void playAction(suggestion)} className="flex w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06` }}><span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: `${ui.accent}16`, color: ui.accent }}>{i + 1}</span><span className="leading-snug">{suggestion}</span></button>)}</div>}
             <div className="flex items-end gap-1.5"><textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void playAction(input); } }} rows={1} disabled={generating} placeholder={activeWorld.mode === 'reader' ? '写下你想做的事，或让世界继续……' : '输入你的行动……'} className="min-h-[36px] flex-1 resize-none rounded-xl border bg-transparent px-2.5 py-2 text-[13px] outline-none placeholder:opacity-35" style={{ borderColor: palette.border }} /><button onClick={() => void playAction(input)} disabled={generating || !input.trim()} className="rounded-xl p-2 text-white shadow-sm disabled:opacity-30" style={{ background: ui.accent }}><Sparkle size={16} weight="fill" /></button></div>
@@ -1406,14 +1441,14 @@ const EchoesApp: React.FC = () => {
     return <div className="echoes-root relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
         {ui.customCss && <style dangerouslySetInnerHTML={{ __html: ui.customCss }} />}
         <div className="pointer-events-none absolute inset-0" style={{ background: atmosphereStyle }} />
-        <header className={`relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-b-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}e6`, borderColor: palette.border }}>
+        <header className={`sully-echoes-chrome relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-b-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}e6`, borderColor: palette.border }}>
             <button onClick={() => { setView('lobby'); setActiveWorld(null); setActiveTab('story'); setFreshTurnId(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="返回世界列表"><ArrowLeft size={19} /></button>
             <div className="min-w-0 flex-1"><p className="truncate text-[9px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>ECHOES · {modeLabel(activeWorld.mode)}</p><h1 className="truncate text-[14px] font-bold">{activeWorld.title}</h1></div>
             <button onClick={() => setShowWritingGuideSheet(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="写作指导"><PencilSimple size={17} /></button>
             <button onClick={() => setShowInspector(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="世界检查"><Eye size={17} /></button>
             <button onClick={() => setShowSettings(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="界面设置"><GearSix size={17} /></button>
         </header>
-        <div className="relative z-10 flex shrink-0 items-center justify-between border-b px-4 py-2 text-[10px]" style={{ background: `${palette.panel}b8`, borderColor: palette.border, color: palette.muted }}><span className="inline-flex items-center gap-1.5"><MapPin size={12} style={{ color: ui.accent }} />{activeWorld.state.location}</span><span>{activeWorld.state.time}</span><span>{activeWorld.state.chapter}</span><span>{activeWorld.turns.length} 回合</span></div>
+        <div className={`sully-echoes-chrome relative z-10 flex shrink-0 items-center justify-between border-b px-4 py-2 text-[10px] ${globalLiquidGlass ? 'bg-white/10 backdrop-blur-xl border-white/15' : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}b8`, borderColor: palette.border, color: globalLiquidGlass ? 'rgba(15,23,42,.68)' : palette.muted }}><span className="inline-flex items-center gap-1.5"><MapPin size={12} style={{ color: ui.accent }} />{activeWorld.state.location}</span><span>{activeWorld.state.time}</span><span>{activeWorld.state.chapter}</span><span>{activeWorld.turns.length} 回合</span></div>
         <main
             ref={storyContainerRef}
             className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain"
@@ -1428,7 +1463,7 @@ const EchoesApp: React.FC = () => {
             {activeTab === 'story' ? storyView : activeTab === 'relations' ? relationsView : statusView}
         </main>
         {actionDock}
-        <nav className={`relative z-10 flex shrink-0 items-stretch border-t pb-[var(--safe-bottom)] ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f7`, borderColor: palette.border }}>
+        <nav className={`sully-echoes-chrome relative z-10 flex shrink-0 items-stretch border-t pb-[var(--safe-bottom)] ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f7`, borderColor: palette.border }}>
             {tabItems.map(tab => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.key;
@@ -1446,6 +1481,7 @@ const EchoesApp: React.FC = () => {
                         }
                     }}
                     className="flex flex-1 flex-col items-center gap-1 px-2 pb-2 pt-2 text-[10px] transition"
+                    data-active={active ? 'true' : 'false'}
                     style={{ color: active ? ui.accent : palette.muted }}
                 >
                     <Icon size={18} weight={active ? 'fill' : 'regular'} />

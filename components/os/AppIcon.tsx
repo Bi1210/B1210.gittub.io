@@ -38,6 +38,7 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
   const sizeClasses =
     size === 'lg' ? 'w-[4.25rem] h-[4.25rem]' :
     size === 'sm' ? 'w-[2.75rem] h-[2.75rem]' :
+    isLiquidGlass ? 'w-[3.75rem] h-[3.75rem]' :
     'w-[3.5rem] h-[3.5rem]';
 
   // 动森彩蛋模式：整机统一 NookPhone 外观，连用户自定义图标也一并盖掉。
@@ -80,7 +81,7 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
     >
       {/* #409 的“保留透明图标原轮廓”改为可选；默认继续使用原来的系统圆角底框。 */}
       <div
-        className={`${sizeClasses} relative flex items-center justify-center ${preserveCustomOutline ? '' : isLiquidGlass ? 'sully-lg-icon sully-lg-pressable rounded-[1.1rem]' : isPaperDesktop ? `
+        className={`${sizeClasses} relative flex items-center justify-center ${preserveCustomOutline ? '' : isLiquidGlass ? 'sully-lg-icon sully-lg-glow sully-lg-pressable rounded-[22%]' : isPaperDesktop ? `
           rounded-[1.1rem] border
           transition-[transform,background-color,box-shadow] duration-200
           group-hover:-translate-y-0.5
@@ -90,6 +91,14 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
         shadow-[0_4px_12px_rgba(0,0,0,0.16)]
         group-hover:bg-white/50 group-hover:border-white/50
       `}`}
+        onPointerMove={isLiquidGlass && !preserveCustomOutline ? (event) => {
+          const target = event.currentTarget;
+          const rect = target.getBoundingClientRect();
+          target.style.setProperty('--lg-pointer-x', `${((event.clientX - rect.left) / rect.width) * 100}%`);
+          target.style.setProperty('--lg-pointer-y', `${((event.clientY - rect.top) / rect.height) * 100}%`);
+          target.classList.add('sully-lg-glow-active');
+        } : undefined}
+        onPointerLeave={isLiquidGlass && !preserveCustomOutline ? (event) => event.currentTarget.classList.remove('sully-lg-glow-active') : undefined}
         style={!preserveCustomOutline && isPaperDesktop ? {
           background: 'rgba(224,221,215,0.42)',
           borderColor: 'rgba(91,72,51,0.075)',
@@ -100,7 +109,7 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
         {customIconUrl ? (
             <img
               src={customIconUrl}
-              className={`w-full h-full ${preserveCustomOutline ? 'object-contain' : 'object-cover rounded-[1.2rem]'}`}
+              className={`w-full h-full ${preserveCustomOutline ? 'object-contain' : isLiquidGlass ? 'object-cover rounded-[22%]' : 'object-cover rounded-[1.2rem]'}`}
               alt={app.name}
               loading="lazy"
             />
@@ -118,7 +127,7 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
       
       {!hideLabel && (
         <span
-            className={`${size === 'sm' ? 'text-[8.5px]' : 'text-[10px]'} ${isPaperDesktop ? 'tracking-[0.08em] font-semibold opacity-75' : 'tracking-widest font-bold uppercase opacity-80 text-shadow-md'} transition-opacity max-w-full truncate ${variant === 'dock' ? 'hidden' : 'block'}`}
+            className={`${isLiquidGlass ? (size === 'sm' ? 'text-[10px]' : 'text-[13px]') : (size === 'sm' ? 'text-[8.5px]' : 'text-[10px]')} ${isLiquidGlass ? 'tracking-normal font-semibold opacity-100 text-shadow-md' : isPaperDesktop ? 'tracking-[0.08em] font-semibold opacity-75' : 'tracking-widest font-bold uppercase opacity-80 text-shadow-md'} transition-opacity max-w-full truncate ${variant === 'dock' ? 'hidden' : 'block'}`}
             style={{ color: contentColor }}
         >
           {app.name}
@@ -126,13 +135,6 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
       )}
     </button>
   );
-}, (prev, next) => {
-    // Custom comparison to prevent re-render unless specific props change
-    // We don't check 'onClick' deeply assuming it's stable or we want to ignore function ref changes
-    return prev.app.id === next.app.id && 
-           prev.size === next.size && 
-           prev.hideLabel === next.hideLabel &&
-           prev.variant === next.variant;
 });
 
 export default AppIcon;
