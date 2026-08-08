@@ -481,12 +481,46 @@ const LiquidGlassHome: React.FC<{
     const [orderedApps, setOrderedApps] = useState<typeof INSTALLED_APPS>(apps);
     const [draggingId, setDraggingId] = useState<AppID | null>(null);
     const [dragOverId, setDragOverId] = useState<AppID | null>(null);
+    const [dragPoint, setDragPoint] = useState({ x: 0, y: 0 });
     const pageScrollerRef = useRef<HTMLDivElement>(null);
     const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pointerRef = useRef<{ pointerId: number; appId: AppID; x: number; y: number } | null>(null);
+    const orderedAppsRef = useRef<typeof INSTALLED_APPS>(apps);
+    const draggingIdRef = useRef<AppID | null>(null);
+    const dragPreviewRef = useRef<HTMLDivElement>(null);
+    const lastReorderTargetRef = useRef<AppID | null>(null);
+    const dragLayoutSnapshotRef = useRef<Map<string, DOMRect> | null>(null);
+    const animateDragLayoutRef = useRef(false);
     const suppressClickUntil = useRef(0);
 
-    useEffect(() => { setOrderedApps(apps); }, [apps]);
+    useEffect(() => {
+        orderedAppsRef.current = apps;
+        setOrderedApps(apps);
+    }, [apps]);
+    useEffect(() => { orderedAppsRef.current = orderedApps; }, [orderedApps]);
+    useLayoutEffect(() => {
+        const previous = dragLayoutSnapshotRef.current;
+        if (!previous || !animateDragLayoutRef.current || typeof document === 'undefined') return;
+        dragLayoutSnapshotRef.current = null;
+        animateDragLayoutRef.current = false;
+        document.querySelectorAll<HTMLElement>('[data-liquid-app]').forEach(element => {
+            const id = element.dataset.liquidApp;
+            const before = id ? previous.get(id) : undefined;
+            if (!before || typeof element.animate !== 'function') return;
+            const after = element.getBoundingClientRect();
+            const dx = before.left - after.left;
+            const dy = before.top - after.top;
+            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+            const heldTransform = element.classList.contains('sully-lg-app-dragging') ? 'scale(0.92)' : 'none';
+            element.animate(
+                [
+                    { transform: `translate(${dx}px, ${dy}px) ${heldTransform === 'none' ? '' : heldTransform}` },
+                    { transform: heldTransform },
+                ],
+                { duration: 220, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+            );
+        });
+    }, [orderedApps]);
     useEffect(() => () => { if (holdTimer.current) clearTimeout(holdTimer.current); }, []);
 
     const homePages = useMemo(() => {
@@ -495,6 +529,7 @@ const LiquidGlassHome: React.FC<{
         return pages.length ? pages : [[] as typeof INSTALLED_APPS];
     }, [orderedApps]);
     const pageCount = homePages.length + (widgetPage ? 1 : 0);
+    const draggingApp = draggingId ? orderedApps.find(app => app.id === draggingId) : null;
 
     const searchResults = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -506,20 +541,44 @@ const LiquidGlassHome: React.FC<{
         if (holdTimer.current) clearTimeout(holdTimer.current);
         holdTimer.current = null;
     };
+    const commitOrder = () => {
+        void onOrderChange(orderedAppsRef.current.map(app => app.id));
+    };
     const openAppSafely = (id: AppID) => {
         if (editing || Date.now() < suppressClickUntil.current) return;
         openApp(id);
     };
+    // Reorder on entry, not on release. This matches the native home screen:
+    // the neighbouring icon makes room as soon as the finger crosses it.
     const reorderApps = (fromId: AppID, toId: AppID) => {
         if (fromId === toId) return;
-        const from = orderedApps.findIndex(app => app.id === fromId);
-        const to = orderedApps.findIndex(app => app.id === toId);
+        const current = orderedAppsRef.current;
+        const from = current.findIndex(app => app.id === fromId);
+        const to = current.findIndex(app => app.id === toId);
         if (from < 0 || to < 0) return;
-        const next = [...orderedApps];
+        if (typeof document !== 'undefined') {
+            dragLayoutSnapshotRef.current = new Map(
+                Array.from(document.querySelectorAll<HTMLElement>('[data-liquid-app]'))
+                    .map(element => [element.dataset.liquidApp || '', element.getBoundingClientRect()] as const)
+                    .filter(([id]) => !!id),
+            );
+            animateDragLayoutRef.current = true;
+        }
+        const next = [...current];
         const [moved] = next.splice(from, 1);
         next.splice(to, 0, moved);
+        orderedAppsRef.current = next;
         setOrderedApps(next);
-        void onOrderChange(next.map(app => app.id));
+    };
+    const updateDragPoint = (x: number, y: number) => {
+        if (dragPreviewRef.current) {
+            dragPreviewRef.current.style.left = `${x}px`;
+            dragPreviewRef.current.style.top = `${y}px`;
+            return;
+        }
+        // The first update creates the preview; afterwards move it by DOM style
+        // only so pointermove does not re-render the whole home screen.
+        setDragPoint({ x, y });
     };
     const handleItemPointerDown = (event: React.PointerEvent<HTMLDivElement>, appId: AppID) => {
         if (event.pointerType === 'mouse' && event.button !== 0) return;
@@ -528,20 +587,26 @@ const LiquidGlassHome: React.FC<{
         const targetElement = event.currentTarget;
         pointerRef.current = { pointerId: event.pointerId, appId, x: event.clientX, y: event.clientY };
         holdTimer.current = setTimeout(() => {
+            const pointer = pointerRef.current;
+            if (!pointer || pointer.pointerId !== event.pointerId) return;
+            draggingIdRef.current = appId;
+            lastReorderTargetRef.current = null;
             setEditing(true);
             setDraggingId(appId);
             setDragOverId(null);
             setSearchOpen(false);
+            updateDragPoint(pointer.x, pointer.y);
             suppressClickUntil.current = Date.now() + 900;
             navigator.vibrate?.(10);
-            targetElement.setPointerCapture?.(event.pointerId);
-        }, 520);
+            try { targetElement.setPointerCapture(event.pointerId); } catch { /* pointer may have ended */ }
+        }, 500);
     };
     const handleItemPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
         const pointer = pointerRef.current;
         if (!pointer || pointer.pointerId !== event.pointerId) return;
         event.stopPropagation();
-        if (!draggingId) {
+        const activeDragId = draggingIdRef.current;
+        if (!activeDragId) {
             if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 10) {
                 clearHold();
                 pointerRef.current = null;
@@ -549,28 +614,43 @@ const LiquidGlassHome: React.FC<{
             return;
         }
         event.preventDefault();
+        updateDragPoint(event.clientX, event.clientY);
         const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-liquid-app]');
         const targetId = target?.dataset.liquidApp as AppID | undefined;
-        if (targetId && targetId !== draggingId) setDragOverId(targetId);
+        if (!targetId || targetId === activeDragId) {
+            if (targetId === activeDragId) lastReorderTargetRef.current = null;
+            setDragOverId(null);
+            return;
+        }
+        if (lastReorderTargetRef.current === targetId) return;
+        lastReorderTargetRef.current = targetId;
+        reorderApps(activeDragId, targetId);
+        setDragOverId(null);
     };
     const handleItemPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
         const pointer = pointerRef.current;
+        const activeDragId = draggingIdRef.current;
         clearHold();
         if (!pointer || pointer.pointerId !== event.pointerId) return;
         event.stopPropagation();
-        if (draggingId) {
-            const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-liquid-app]');
-            const targetId = target?.dataset.liquidApp as AppID | undefined;
-            if (targetId) reorderApps(draggingId, targetId);
+        if (activeDragId) {
+            event.preventDefault();
+            commitOrder();
             suppressClickUntil.current = Date.now() + 650;
+            try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* already released */ }
         }
         pointerRef.current = null;
+        draggingIdRef.current = null;
+        lastReorderTargetRef.current = null;
         setDraggingId(null);
         setDragOverId(null);
     };
     const finishEditing = () => {
         clearHold();
+        if (draggingIdRef.current) commitOrder();
         pointerRef.current = null;
+        draggingIdRef.current = null;
+        lastReorderTargetRef.current = null;
         setDraggingId(null);
         setDragOverId(null);
         setEditing(false);
@@ -604,11 +684,25 @@ const LiquidGlassHome: React.FC<{
     );
 
     return (
-        <div className={`sully-lg-home relative z-10 flex h-full min-h-0 w-full flex-col overflow-hidden select-none ${editing ? 'sully-lg-home-editing' : ''}`}>
+        <div
+            className={`sully-lg-home relative z-10 flex h-full min-h-0 w-full flex-col overflow-hidden select-none ${editing ? 'sully-lg-home-editing' : ''}`}
+            onContextMenu={(event) => event.preventDefault()}
+            onDragStart={(event) => event.preventDefault()}
+        >
             {editing && (
                 <div className="sully-lg-edit-bar absolute left-4 right-4 top-[calc(var(--safe-top)+0.6rem)] z-40 flex items-center justify-between rounded-full px-4 py-2.5">
-                    <span>按住拖动，松手交换位置</span>
+                    <span>按住拖动，经过应用即可换位</span>
                     <button onClick={finishEditing}>完成</button>
+                </div>
+            )}
+            {draggingApp && (
+                <div
+                    ref={dragPreviewRef}
+                    className="sully-lg-drag-preview"
+                    style={{ left: dragPoint.x, top: dragPoint.y }}
+                    aria-hidden="true"
+                >
+                    <AppIcon app={draggingApp} onClick={() => {}} size="md" />
                 </div>
             )}
             <div

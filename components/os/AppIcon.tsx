@@ -23,6 +23,8 @@ const NOOK_TILE_COLORS: Record<string, string> = {
   cyan: '#82D5BB', blue: '#889DF0', slate: '#9A835A',
 };
 
+const suppressNativeImageMenu = (event: React.SyntheticEvent) => event.preventDefault();
+
 const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md', hideLabel = false, variant = 'default' }) => {
   const { customIcons, theme } = useOS();
   const IconComponent = Icons[app.icon] || Icons.Settings;
@@ -31,6 +33,9 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
   const isLiquidGlass = theme.skin === 'liquidglass';
   const isPaperDesktop = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && theme.skin !== 'liquidglass' && isPaperWallpaper(theme.wallpaper);
   const preserveCustomOutline = !!customIconUrl && theme.preserveCustomIconOutlines === true;
+  // Liquid Glass 下自定义图标本身就是完整的 App Store 图标，不再套一层白色玻璃框。
+  // 否则会出现「图标外还有一圈白边」的冒牌感；设置里的保留原轮廓开关仍对所有皮肤生效。
+  const useNativeAssetFrame = !!customIconUrl && (preserveCustomOutline || isLiquidGlass);
   // 动森皮肤下标签用深棕色，普通皮肤沿用主题 contentColor。
   const contentColor = isNook ? '#725d42' : (theme.contentColor || '#ffffff');
 
@@ -48,7 +53,9 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
       <button
         onClick={onClick}
         onPointerDown={() => preloadApp(app.id)}
-        className="flex flex-col items-center gap-1.5 group relative active:scale-95 transition-transform duration-200"
+        onContextMenu={suppressNativeImageMenu}
+        onDragStart={suppressNativeImageMenu}
+        className="sully-app-icon-button flex flex-col items-center gap-1.5 group relative active:scale-95 transition-transform duration-200"
         style={{ WebkitTapHighlightColor: 'transparent' }}
       >
         {/* NookPhone 圆角方块瓦片：纯平面，无边框/无阴影/无高光（对齐参考图） */}
@@ -76,12 +83,14 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
     <button
       onClick={onClick}
       onPointerDown={() => preloadApp(app.id)}
-      className="flex flex-col items-center gap-1.5 group relative active:scale-95 transition-transform duration-200"
+      onContextMenu={suppressNativeImageMenu}
+      onDragStart={suppressNativeImageMenu}
+      className="sully-app-icon-button flex flex-col items-center gap-1.5 group relative active:scale-95 transition-transform duration-200"
       style={{ WebkitTapHighlightColor: 'transparent' }}
     >
       {/* #409 的“保留透明图标原轮廓”改为可选；默认继续使用原来的系统圆角底框。 */}
       <div
-        className={`${sizeClasses} relative flex items-center justify-center ${preserveCustomOutline ? '' : isLiquidGlass ? 'sully-lg-icon sully-lg-glow sully-lg-pressable rounded-[22%]' : isPaperDesktop ? `
+        className={`${sizeClasses} relative flex items-center justify-center ${useNativeAssetFrame ? (isLiquidGlass ? 'sully-lg-native-icon-frame rounded-[22%]' : '') : isLiquidGlass ? 'sully-lg-icon sully-lg-glow sully-lg-pressable rounded-[22%]' : isPaperDesktop ? `
           rounded-[1.1rem] border
           transition-[transform,background-color,box-shadow] duration-200
           group-hover:-translate-y-0.5
@@ -111,6 +120,9 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
               src={customIconUrl}
               className={`w-full h-full ${preserveCustomOutline ? 'object-contain' : isLiquidGlass ? 'object-cover rounded-[22%]' : 'object-cover rounded-[1.2rem]'}`}
               alt={app.name}
+              draggable={false}
+              onContextMenu={suppressNativeImageMenu}
+              onDragStart={suppressNativeImageMenu}
               loading="lazy"
             />
         ) : (

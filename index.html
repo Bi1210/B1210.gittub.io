@@ -294,6 +294,33 @@
         position: relative;
         z-index: 1;
       }
+      /* 已经是完整 App Store 图的自定义图标：只保留原图和一圈极细的系统边缘，
+         不再额外叠加白色玻璃底，避免出现游戏贴图被套壳的感觉。 */
+      html[data-skin="liquidglass"] .sully-lg-native-icon-frame {
+        position: relative;
+        overflow: hidden;
+        isolation: isolate;
+        background: transparent;
+        border-radius: 22%;
+        box-shadow: 0 1px 4px rgba(8, 25, 48, 0.10), inset 0 0 0 0.75px rgba(255, 255, 255, 0.30);
+      }
+      html[data-skin="liquidglass"] .sully-lg-native-icon-frame::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        box-shadow: inset 0 0 0 0.75px rgba(8, 25, 48, 0.16);
+      }
+      html[data-skin="liquidglass"] .sully-lg-native-icon-frame > img {
+        display: block;
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: inherit;
+      }
       html[data-skin="liquidglass"] .sully-lg-dock {
         min-height: 82px;
         border-radius: 30px;
@@ -397,9 +424,43 @@
       /* 原生式桌面层：图标与标签只使用统一几何，不给壁纸增加主题色。 */
       html[data-skin="liquidglass"] .sully-lg-home {
         color: rgba(255, 255, 255, 0.96);
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      /* App 图标不是可保存的网页图片：关闭 iOS 图片长按菜单、图片拖拽和选中文本。
+         仅作用于桌面图标，不影响相册、聊天里的正常图片操作。 */
+      html[data-skin="liquidglass"] .sully-app-icon-button,
+      html[data-skin="liquidglass"] .sully-app-icon-button *,
+      html[data-skin="liquidglass"] .sully-lg-home-cell,
+      html[data-skin="liquidglass"] .sully-lg-home-cell img {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+      html[data-skin="liquidglass"] .sully-app-icon-button img {
+        pointer-events: none;
+      }
+      /* 未进入整理时保留横向翻页；整理态再锁住指针，手指只负责搬运图标。 */
+      html[data-skin="liquidglass"] .sully-lg-home-cell {
+        touch-action: manipulation;
       }
       html[data-skin="liquidglass"] .sully-lg-home-editing .sully-lg-home-cell {
         touch-action: none;
+      }
+      html[data-skin="liquidglass"] .sully-lg-drag-preview {
+        position: fixed;
+        z-index: 90;
+        pointer-events: none;
+        transform: translate(-50%, -58%) scale(1.08) rotate(-2deg);
+        transform-origin: center;
+        filter: drop-shadow(0 14px 20px rgba(8, 25, 48, 0.22));
+        will-change: left, top, transform;
+        contain: layout style paint;
+      }
+      html[data-skin="liquidglass"] .sully-lg-drag-preview .sully-app-icon-button {
+        pointer-events: none;
       }
       html[data-skin="liquidglass"] .sully-lg-edit-bar {
         background: rgba(255, 255, 255, 0.16);
