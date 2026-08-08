@@ -151,9 +151,9 @@
         --lg-blur: 38px;
         --lg-saturate: 148%;
         --lg-contrast: 106%;
-        --lg-border: rgba(255, 255, 255, 0.42);
-        --lg-highlight: rgba(255, 255, 255, 0.86);
-        --lg-shadow: 0 12px 38px rgba(8, 25, 48, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.78), inset 0 -18px 36px rgba(255, 255, 255, 0.06);
+        --lg-border: rgba(255, 255, 255, 0.22);
+        --lg-highlight: rgba(255, 255, 255, 0.46);
+        --lg-shadow: 0 10px 28px rgba(8, 25, 48, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.38), inset 0 -18px 36px rgba(255, 255, 255, 0.035);
         color-scheme: light;
       }
       /* 玻璃文字有两套语义：Chrome 默认使用白色，设置/表单显式使用深色。 */
@@ -169,8 +169,8 @@
         overflow: hidden;
         isolation: isolate;
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08) 46%, rgba(255, 255, 255, 0.13)),
-          rgba(var(--lg-tint), 0.10);
+          linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035) 46%, rgba(255, 255, 255, 0.07)),
+          rgba(var(--lg-tint), 0.055);
         -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
         backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate)) contrast(var(--lg-contrast));
         border: 1px solid var(--lg-border);
@@ -190,8 +190,8 @@
         position: absolute;
         inset: 0;
         border-radius: inherit;
-        background: linear-gradient(115deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.12) 17%, transparent 42%, transparent 74%, rgba(255, 255, 255, 0.18) 100%);
-        opacity: 0.72;
+        background: linear-gradient(115deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.06) 17%, transparent 42%, transparent 74%, rgba(255, 255, 255, 0.08) 100%);
+        opacity: 0.62;
         pointer-events: none;
         z-index: 0;
       }
@@ -201,8 +201,8 @@
         position: absolute;
         inset: 1px;
         border-radius: inherit;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        background: radial-gradient(72% 34% at 50% 0%, rgba(255, 255, 255, 0.22), transparent 72%);
+        border: 1px solid rgba(255, 255, 255, 0.10);
+        background: radial-gradient(72% 34% at 50% 0%, rgba(255, 255, 255, 0.10), transparent 72%);
         pointer-events: none;
         z-index: 0;
       }
@@ -218,12 +218,12 @@
         overflow: hidden;
         isolation: isolate;
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.10) 58%, rgba(255, 255, 255, 0.16)),
-          rgba(var(--lg-tint), 0.12);
+          linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.045) 58%, rgba(255, 255, 255, 0.08)),
+          rgba(var(--lg-tint), 0.07);
         -webkit-backdrop-filter: blur(30px) saturate(145%) contrast(104%);
         backdrop-filter: blur(30px) saturate(145%) contrast(104%);
         border: 1px solid var(--lg-border);
-        box-shadow: 0 9px 28px rgba(8, 25, 48, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.76), inset 0 -12px 28px rgba(255, 255, 255, 0.05);
+        box-shadow: 0 8px 24px rgba(8, 25, 48, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.38), inset 0 -12px 28px rgba(255, 255, 255, 0.025);
         transition: transform 0.35s cubic-bezier(0.34, 1.4, 0.4, 1), box-shadow 0.35s ease;
       }
       /* 滚动收缩形变：由 JS（utils/liquidGlassScroll）根据滚动方向/速度切换这个类，
@@ -275,18 +275,18 @@
         position: relative;
         overflow: hidden;
         isolation: isolate;
-        background: rgba(var(--lg-tint), 0.24);
-        -webkit-backdrop-filter: blur(22px) saturate(138%) contrast(104%);
-        backdrop-filter: blur(22px) saturate(138%) contrast(104%);
-        border: 1px solid rgba(255, 255, 255, 0.34);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.70), inset 0 -8px 16px rgba(255, 255, 255, 0.05), 0 3px 12px rgba(8, 25, 48, 0.10);
+        background: rgba(var(--lg-tint), 0.10);
+        -webkit-backdrop-filter: blur(26px) saturate(132%) contrast(102%);
+        backdrop-filter: blur(26px) saturate(132%) contrast(102%);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.30), inset 0 -8px 16px rgba(255, 255, 255, 0.025), 0 2px 8px rgba(8, 25, 48, 0.07);
       }
       html[data-skin="liquidglass"] .sully-lg-icon::before {
         content: '';
         position: absolute;
         inset: 0;
         border-radius: inherit;
-        background: linear-gradient(145deg, rgba(255, 255, 255, 0.40), transparent 30%, transparent 72%, rgba(255, 255, 255, 0.12));
+        background: linear-gradient(145deg, rgba(255, 255, 255, 0.16), transparent 30%, transparent 72%, rgba(255, 255, 255, 0.04));
         pointer-events: none;
         z-index: 0;
       }
@@ -397,6 +397,35 @@
       /* 原生式桌面层：图标与标签只使用统一几何，不给壁纸增加主题色。 */
       html[data-skin="liquidglass"] .sully-lg-home {
         color: rgba(255, 255, 255, 0.96);
+      }
+      html[data-skin="liquidglass"] .sully-lg-home-editing .sully-lg-home-cell {
+        touch-action: none;
+      }
+      html[data-skin="liquidglass"] .sully-lg-edit-bar {
+        background: rgba(255, 255, 255, 0.16);
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        color: rgba(15, 23, 42, 0.88);
+        -webkit-backdrop-filter: blur(28px) saturate(130%);
+        backdrop-filter: blur(28px) saturate(130%);
+        box-shadow: 0 8px 24px rgba(8, 25, 48, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.36);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      html[data-skin="liquidglass"] .sully-lg-edit-bar button {
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.22);
+        color: rgba(15, 23, 42, 0.88);
+        padding: 5px 14px;
+        font-weight: 700;
+      }
+      html[data-skin="liquidglass"] .sully-lg-app-dragging {
+        opacity: 0.48;
+        transform: scale(0.92);
+      }
+      html[data-skin="liquidglass"] .sully-lg-app-drag-over {
+        transform: scale(1.08);
+        filter: brightness(1.06);
       }
       html[data-skin="liquidglass"] .sully-lg-home-grid {
         display: grid;

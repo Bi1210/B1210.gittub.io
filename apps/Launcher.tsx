@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
 import { isPaperWallpaper, useOS } from '../context/OSContext';
-import { INSTALLED_APPS, DOCK_APPS, Icons } from '../constants';
+import { INSTALLED_APPS, DOCK_APPS } from '../constants';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../utils/devDebug';
 import AppIcon from '../components/os/AppIcon';
 import { DB } from '../utils/db';
@@ -465,29 +465,6 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     );
 });
 
-type LiquidGlassHomeItem =
-    | { kind: 'app'; app: typeof INSTALLED_APPS[number] }
-    | { kind: 'folder'; id: string; name: string; apps: typeof INSTALLED_APPS };
-
-const LIQUID_GLASS_FOLDER_DEFS: Array<{ id: string; name: string; apps: AppID[] }> = [
-    { id: 'life', name: '生活', apps: [AppID.Date, AppID.Journal, AppID.Schedule, AppID.Room] },
-    { id: 'world', name: '世界', apps: [AppID.Worldbook, AppID.VRWorld, AppID.WorldHome, AppID.SpecialMoments] },
-    { id: 'create', name: '创作', apps: [AppID.Novel, AppID.Songwriting, AppID.ThemeMaker, AppID.Gallery] },
-    { id: 'tools', name: '工具', apps: [AppID.Appearance, AppID.FAQ, AppID.Guidebook, AppID.Browser] },
-    { id: 'ai', name: '智能', apps: [AppID.Character, AppID.MemoryPalace, AppID.LifeSim, AppID.CheckPhone] },
-    { id: 'media', name: '影音', apps: [AppID.Music, AppID.Game, AppID.HotNews, AppID.XhsFreeRoam] },
-    { id: 'more', name: '更多', apps: [AppID.Bank, AppID.XhsStock, AppID.VoiceDesigner, AppID.CharCreatorDev] },
-];
-
-const LiquidGlassMiniIcon: React.FC<{ app: typeof INSTALLED_APPS[number] }> = ({ app }) => {
-    const IconComponent = Icons[app.icon] || Icons.Settings;
-    return (
-        <div className="sully-lg-folder-mini" aria-hidden="true">
-            <IconComponent className="h-full w-full" />
-        </div>
-    );
-};
-
 const LiquidGlassHome: React.FC<{
     apps: typeof INSTALLED_APPS;
     allApps: typeof INSTALLED_APPS;
@@ -495,39 +472,29 @@ const LiquidGlassHome: React.FC<{
     openApp: (id: AppID) => void;
     totalUnread: number;
     widgetPage?: React.ReactNode;
-    onBeginEditing: () => void;
-}> = ({ apps, allApps, dockApps, openApp, totalUnread, widgetPage, onBeginEditing }) => {
-    const [openFolder, setOpenFolder] = useState<LiquidGlassHomeItem | null>(null);
+    onOrderChange: (ids: AppID[]) => void | Promise<void>;
+}> = ({ apps, allApps, dockApps, openApp, totalUnread, widgetPage, onOrderChange }) => {
     const [searchOpen, setSearchOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [homePage, setHomePage] = useState(0);
+    const [editing, setEditing] = useState(false);
+    const [orderedApps, setOrderedApps] = useState<typeof INSTALLED_APPS>(apps);
+    const [draggingId, setDraggingId] = useState<AppID | null>(null);
+    const [dragOverId, setDragOverId] = useState<AppID | null>(null);
     const pageScrollerRef = useRef<HTMLDivElement>(null);
-    const editTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pointerRef = useRef<{ pointerId: number; appId: AppID; x: number; y: number } | null>(null);
+    const suppressClickUntil = useRef(0);
 
-    useEffect(() => () => {
-        if (editTimer.current) clearTimeout(editTimer.current);
-    }, []);
+    useEffect(() => { setOrderedApps(apps); }, [apps]);
+    useEffect(() => () => { if (holdTimer.current) clearTimeout(holdTimer.current); }, []);
 
-    const items = useMemo<LiquidGlassHomeItem[]>(() => {
-        const byId = new Map(apps.map(app => [app.id, app]));
-        const directIds = [AppID.Echoes, AppID.Gallery, AppID.Date, AppID.Music, AppID.Novel, AppID.Study, AppID.Game, AppID.Appearance, AppID.Character, AppID.Room, AppID.User, AppID.Songwriting];
-        const used = new Set<AppID>();
-        const direct: LiquidGlassHomeItem[] = directIds
-            .map(id => byId.get(id))
-            .filter((app): app is typeof INSTALLED_APPS[number] => !!app)
-            .map(app => { used.add(app.id); return { kind: 'app', app }; });
-        const folders: LiquidGlassHomeItem[] = LIQUID_GLASS_FOLDER_DEFS.map(def => {
-            const folderApps = def.apps
-                .filter(id => !used.has(id))
-                .map(id => byId.get(id))
-                .filter((app): app is typeof INSTALLED_APPS[number] => !!app);
-            folderApps.forEach(app => used.add(app.id));
-            return folderApps.length > 0 ? { kind: 'folder', id: def.id, name: def.name, apps: folderApps } : null;
-        }).filter((item): item is LiquidGlassHomeItem => !!item);
-        const remaining = apps.filter(app => !used.has(app.id));
-        if (remaining.length > 0) folders.push({ kind: 'folder', id: 'other', name: '更多', apps: remaining });
-        return [...direct, ...folders];
-    }, [apps]);
+    const homePages = useMemo(() => {
+        const pages: Array<typeof INSTALLED_APPS> = [];
+        for (let i = 0; i < orderedApps.length; i += 20) pages.push(orderedApps.slice(i, i + 20));
+        return pages.length ? pages : [[] as typeof INSTALLED_APPS];
+    }, [orderedApps]);
+    const pageCount = homePages.length + (widgetPage ? 1 : 0);
 
     const searchResults = useMemo(() => {
         const q = query.trim().toLowerCase();
@@ -535,13 +502,78 @@ const LiquidGlassHome: React.FC<{
         return allApps.filter(app => `${app.name} ${app.id}`.toLowerCase().includes(q));
     }, [allApps, query]);
 
-    const startEditPress = () => {
-        if (editTimer.current) clearTimeout(editTimer.current);
-        editTimer.current = setTimeout(onBeginEditing, 650);
+    const clearHold = () => {
+        if (holdTimer.current) clearTimeout(holdTimer.current);
+        holdTimer.current = null;
     };
-    const clearEditPress = () => {
-        if (editTimer.current) clearTimeout(editTimer.current);
-        editTimer.current = null;
+    const openAppSafely = (id: AppID) => {
+        if (editing || Date.now() < suppressClickUntil.current) return;
+        openApp(id);
+    };
+    const reorderApps = (fromId: AppID, toId: AppID) => {
+        if (fromId === toId) return;
+        const from = orderedApps.findIndex(app => app.id === fromId);
+        const to = orderedApps.findIndex(app => app.id === toId);
+        if (from < 0 || to < 0) return;
+        const next = [...orderedApps];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        setOrderedApps(next);
+        void onOrderChange(next.map(app => app.id));
+    };
+    const handleItemPointerDown = (event: React.PointerEvent<HTMLDivElement>, appId: AppID) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        event.stopPropagation();
+        clearHold();
+        const targetElement = event.currentTarget;
+        pointerRef.current = { pointerId: event.pointerId, appId, x: event.clientX, y: event.clientY };
+        holdTimer.current = setTimeout(() => {
+            setEditing(true);
+            setDraggingId(appId);
+            setDragOverId(null);
+            setSearchOpen(false);
+            suppressClickUntil.current = Date.now() + 900;
+            navigator.vibrate?.(10);
+            targetElement.setPointerCapture?.(event.pointerId);
+        }, 520);
+    };
+    const handleItemPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const pointer = pointerRef.current;
+        if (!pointer || pointer.pointerId !== event.pointerId) return;
+        event.stopPropagation();
+        if (!draggingId) {
+            if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 10) {
+                clearHold();
+                pointerRef.current = null;
+            }
+            return;
+        }
+        event.preventDefault();
+        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-liquid-app]');
+        const targetId = target?.dataset.liquidApp as AppID | undefined;
+        if (targetId && targetId !== draggingId) setDragOverId(targetId);
+    };
+    const handleItemPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+        const pointer = pointerRef.current;
+        clearHold();
+        if (!pointer || pointer.pointerId !== event.pointerId) return;
+        event.stopPropagation();
+        if (draggingId) {
+            const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-liquid-app]');
+            const targetId = target?.dataset.liquidApp as AppID | undefined;
+            if (targetId) reorderApps(draggingId, targetId);
+            suppressClickUntil.current = Date.now() + 650;
+        }
+        pointerRef.current = null;
+        setDraggingId(null);
+        setDragOverId(null);
+    };
+    const finishEditing = () => {
+        clearHold();
+        pointerRef.current = null;
+        setDraggingId(null);
+        setDragOverId(null);
+        setEditing(false);
     };
 
     const renderDock = () => (
@@ -558,8 +590,8 @@ const LiquidGlassHome: React.FC<{
                 onPointerLeave={(event) => event.currentTarget.classList.remove('sully-lg-glow-active')}
             >
                 {dockApps.map(app => (
-                    <div key={app.id} data-launcher-item={app.id} className="relative flex w-1/4 justify-center">
-                        <AppIcon app={app} onClick={() => openApp(app.id)} variant="dock" size="md" />
+                    <div key={app.id} className="relative flex w-1/4 justify-center">
+                        <AppIcon app={app} onClick={() => openAppSafely(app.id)} variant="dock" size="md" />
                         {app.id === AppID.Chat && totalUnread > 0 && (
                             <div className="absolute -right-1 -top-2 min-w-7 h-7 px-1.5 rounded-full border-2 border-white/35 bg-red-500 text-[12px] font-bold text-white shadow-sm flex items-center justify-center pointer-events-none">
                                 {totalUnread > 99 ? '99+' : totalUnread}
@@ -572,13 +604,13 @@ const LiquidGlassHome: React.FC<{
     );
 
     return (
-        <div
-            className="sully-lg-home relative z-10 flex h-full min-h-0 w-full flex-col overflow-hidden select-none"
-            onPointerDown={startEditPress}
-            onPointerUp={clearEditPress}
-            onPointerCancel={clearEditPress}
-            onContextMenu={(event) => event.preventDefault()}
-        >
+        <div className={`sully-lg-home relative z-10 flex h-full min-h-0 w-full flex-col overflow-hidden select-none ${editing ? 'sully-lg-home-editing' : ''}`}>
+            {editing && (
+                <div className="sully-lg-edit-bar absolute left-4 right-4 top-[calc(var(--safe-top)+0.6rem)] z-40 flex items-center justify-between rounded-full px-4 py-2.5">
+                    <span>按住拖动，松手交换位置</span>
+                    <button onClick={finishEditing}>完成</button>
+                </div>
+            )}
             <div
                 ref={pageScrollerRef}
                 className="min-h-0 flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar"
@@ -587,65 +619,41 @@ const LiquidGlassHome: React.FC<{
                     setHomePage(Math.round(target.scrollLeft / Math.max(1, target.clientWidth)));
                 }}
             >
-                <section className="w-full flex-shrink-0 snap-center min-h-0">
-                    <div className="h-full overflow-y-auto overscroll-contain no-scrollbar px-4 pt-[4.4rem]">
-                        <div className="sully-lg-home-grid mx-auto max-w-[430px]">
-                            {items.map(item => item.kind === 'app' ? (
-                                <div key={item.app.id} className="sully-lg-home-cell">
-                                    <AppIcon app={item.app} onClick={() => openApp(item.app.id)} size="md" />
-                                </div>
-                            ) : (
-                                <div key={item.id} className="sully-lg-home-cell">
+                {homePages.map((page, pageIndex) => (
+                    <section key={pageIndex} className="w-full flex-shrink-0 snap-center min-h-0">
+                        <div className="h-full overflow-y-auto overscroll-contain no-scrollbar px-4 pt-[4.4rem]">
+                            <div className="sully-lg-home-grid mx-auto max-w-[430px]">
+                                {page.map(app => (
                                     <div
-                                        className="sully-lg-folder-cell flex flex-col items-center gap-1.5"
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={() => setOpenFolder(item)}
-                                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setOpenFolder(item); }}
+                                        key={app.id}
+                                        data-liquid-app={app.id}
+                                        className={`sully-lg-home-cell ${draggingId === app.id ? 'sully-lg-app-dragging' : ''} ${dragOverId === app.id ? 'sully-lg-app-drag-over' : ''}`}
+                                        onPointerDown={(event) => handleItemPointerDown(event, app.id)}
+                                        onPointerMove={handleItemPointerMove}
+                                        onPointerUp={handleItemPointerUp}
+                                        onPointerCancel={handleItemPointerUp}
                                     >
-                                        <div className="sully-lg-icon sully-lg-folder-icon sully-lg-glow rounded-[22%]">
-                                            <div className="sully-lg-folder-mini-grid">
-                                                {item.apps.slice(0, 9).map(app => <LiquidGlassMiniIcon key={app.id} app={app} />)}
-                                            </div>
-                                        </div>
-                                        <span className="sully-lg-home-label">{item.name}</span>
+                                        <AppIcon app={app} onClick={() => openAppSafely(app.id)} size="md" />
                                     </div>
-                                </div>
-                            ))}
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                </section>
+                    </section>
+                ))}
                 {widgetPage && <section className="w-full flex-shrink-0 snap-center min-h-0 overflow-hidden">{widgetPage}</section>}
             </div>
 
-            {widgetPage && (
+            {pageCount > 1 && (
                 <div className="sully-lg-page-dots" aria-label="桌面页面">
-                    <span className={homePage === 0 ? 'active' : ''} />
-                    <span className={homePage === 1 ? 'active' : ''} />
+                    {Array.from({ length: pageCount }, (_, index) => <span key={index} className={homePage === index ? 'active' : ''} />)}
                 </div>
             )}
-
             <div className="sully-lg-home-search-row">
-                <button className="sully-lg-pill sully-lg-search-pill" onClick={() => { setSearchOpen(true); setQuery(''); }}>
-                    <MagnifyingGlass size={16} weight="bold" />
-                    <span>搜索</span>
+                <button className="sully-lg-pill sully-lg-search-pill" onClick={() => { if (!editing) { setSearchOpen(true); setQuery(''); } }}>
+                    <MagnifyingGlass size={16} weight="bold" /><span>搜索</span>
                 </button>
             </div>
             {renderDock()}
-
-            {openFolder && openFolder.kind === 'folder' && (
-                <div className="sully-lg-overlay absolute inset-0 z-50 flex items-start justify-center px-4 pt-[calc(var(--safe-top)+5rem)]" onClick={() => setOpenFolder(null)}>
-                    <div className="sully-lg-surface sully-lg-folder-sheet w-full max-w-[360px] rounded-[30px] p-5" onClick={(event) => event.stopPropagation()}>
-                        <div className="mb-4 flex items-center justify-between">
-                            <h2 className="text-base font-semibold text-slate-900">{openFolder.name}</h2>
-                            <button className="sully-lg-pill flex h-8 w-8 items-center justify-center rounded-full text-slate-700" onClick={() => setOpenFolder(null)} aria-label="关闭文件夹">×</button>
-                        </div>
-                        <div className="grid grid-cols-4 gap-x-2 gap-y-5">
-                            {openFolder.apps.map(app => <AppIcon key={app.id} app={app} onClick={() => { setOpenFolder(null); openApp(app.id); }} size="md" />)}
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {searchOpen && (
                 <div className="sully-lg-overlay absolute inset-0 z-[60] flex items-start justify-center px-4 pt-[calc(var(--safe-top)+3.5rem)]" onClick={() => setSearchOpen(false)}>
@@ -1136,8 +1144,8 @@ const Launcher: React.FC = () => {
     return <TamagotchiHome />;
   }
 
-  // Liquid Glass 首页采用原生式图标网格；长按进入原有布局编辑器，保留拖动排序与全部小组件页。
-  if (liquidGlass && !layoutEditing) {
+  // Liquid Glass 首页使用独立的平铺图标网格；长按直接在当前首页拖动，不跳回旧版桌面整理器。
+  if (liquidGlass) {
     return (
       <LiquidGlassHome
         apps={gridApps}
@@ -1146,7 +1154,11 @@ const Launcher: React.FC = () => {
         openApp={openApp}
         totalUnread={totalUnread}
         widgetPage={<WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters} />}
-        onBeginEditing={() => setLayoutEditing(true)}
+        onOrderChange={(ids) => {
+          launcherAppOrderRef.current = ids;
+          setLauncherAppOrder(ids);
+          return updateTheme({ launcherAppOrder: ids });
+        }}
       />
     );
   }
