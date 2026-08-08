@@ -1002,7 +1002,7 @@ const PhoneShell: React.FC = () => {
             {preserveEchoesHost ? (
               <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
                 <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
-                  <div className="w-full h-full">{renderApp(activeApp)}</div>
+                  <div className="w-full h-full">{renderApp(appToRender)}</div>
                 </Suspense>
               </AppErrorBoundary>
             ) : (
