@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
 import { bakeVoiceMiddleware } from './server/bake-voice-middleware';
 
 // 构建时抓 git 分支 + short commit + UTC+8 构建时间，注入到版本信息显示。
@@ -49,6 +50,23 @@ let showBuildBadge = !isReleaseBranch;
 if (process.env.VITE_HIDE_BUILD_BADGE === '1') showBuildBadge = false;
 if (process.env.VITE_SHOW_BUILD_BADGE === '1') showBuildBadge = true;
 
+// 版本号、标题和更新日志由构建脚本从 Git 自动生成；Vite 直接注入，
+// 这样 Settings / UpdateCenter 在首屏就能拿到与 public/version.json 完全一致的数据。
+const readGeneratedManifest = (): { version?: string; date?: string; title?: string; changes?: string[] } => {
+  try {
+    const raw = fs.readFileSync('public/version.json', 'utf8');
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' ? value : {};
+  } catch {
+    return {};
+  }
+};
+const generatedManifest = readGeneratedManifest();
+const generatedVersion = generatedManifest.version || '1.3.0';
+const generatedDate = generatedManifest.date || new Date().toISOString().slice(0, 10);
+const generatedTitle = generatedManifest.title || 'SullyOS 自动构建更新';
+const generatedChanges = Array.isArray(generatedManifest.changes) ? generatedManifest.changes.filter((item): item is string => typeof item === 'string') : [];
+
 export default defineConfig({
   plugins: [
     react(),
@@ -64,6 +82,10 @@ export default defineConfig({
     __BUILD_COMMIT__: JSON.stringify(gitInfo.commit),
     __BUILD_TIME__: JSON.stringify(buildTime),
     __BUILD_BADGE_VISIBLE__: JSON.stringify(showBuildBadge),
+    __APP_VERSION__: JSON.stringify(generatedVersion),
+    __APP_VERSION_DATE__: JSON.stringify(generatedDate),
+    __APP_VERSION_TITLE__: JSON.stringify(generatedTitle),
+    __APP_VERSION_CHANGES__: JSON.stringify(generatedChanges),
   },
   // GitHub Pages 发布时使用相对路径，避免仓库子路径导致资源 404
   base: process.env.GITHUB_PAGES ? './' : '/',

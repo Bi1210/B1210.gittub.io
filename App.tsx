@@ -12,11 +12,14 @@ import ChatBroadcast from './components/ChatBroadcast';
 import { isIOSStandaloneWebApp } from './utils/iosStandalone';
 import { installDevDebugLifecycleCapture } from './utils/devDebug';
 import UpdateCenter from './components/UpdateCenter';
+import { installExitMotion } from './utils/exitMotion';
 
 const App: React.FC = () => {
   React.useEffect(() => {
     // 常驻监听前后台 / 焦点 / 网络事件；抓不抓由 devDebug 的 lifecycle 类勾选决定
     installDevDebugLifecycleCapture();
+    const uninstallExitMotion = installExitMotion();
+    return uninstallExitMotion;
   }, []);
 
   const useAbsoluteShell = typeof window !== 'undefined' && isIOSStandaloneWebApp();

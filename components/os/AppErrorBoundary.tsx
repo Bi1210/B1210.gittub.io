@@ -37,6 +37,7 @@ type AppErrorBoundaryState = {
 
 class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
     private copyLabelTimer: number | null = null;
+    private recoveryFallbackTimer: number | null = null;
 
     constructor(props: AppErrorBoundaryProps) {
         super(props);
@@ -78,6 +79,12 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
         if (isChunkLoadError(error) && tryAutoReloadForChunkError()) {
             trackEvent('自动刷新恢复资源加载失败', { 恢复方式: '已自动刷新' });
             this.setState({ autoReloading: true });
+            // 极端情况下 location.replace 被 WebView 拦截时，不能永久卡在“正在恢复”。
+            this.recoveryFallbackTimer = window.setTimeout(() => {
+                if (this.state.autoReloading) {
+                    this.setState({ autoReloading: false });
+                }
+            }, 4500);
         } else if (isChunkLoadError(error)) {
             // 走到这里 = 是 chunk 错但没自动刷（冷却期内 / sessionStorage 不可用），页面还在。
             trackEvent('自动刷新恢复资源加载失败', { 恢复方式: '冷却期内不刷' });
@@ -101,6 +108,9 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
     componentWillUnmount() {
         if (this.copyLabelTimer) {
             window.clearTimeout(this.copyLabelTimer);
+        }
+        if (this.recoveryFallbackTimer) {
+            window.clearTimeout(this.recoveryFallbackTimer);
         }
     }
 

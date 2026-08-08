@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITHUB_PAGES: 'true'
+      # 给构建脚本提供本次 push 的父提交；更新日志只汇总本次部署包含的 Git 提交。
+      GITHUB_EVENT_BEFORE: ${{ github.event.before }}
       # 使用统计。值存在仓库的 Variables 里，不写死在这份 YAML——
       # fork 出去的仓库继承得到工作流、继承不到 Variables，构建出来就是零统计的版本
       # （两个变量缺任何一个，统计脚本压根不会加载）。详见 docs/analytics.md。
@@ -27,6 +29,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 更新日志由 Git 提交自动生成，必须拿到完整历史，不能只取默认浅克隆。
+          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4

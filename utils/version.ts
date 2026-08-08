@@ -1,9 +1,12 @@
 /**
- * SullyOS 版本与更新日志管理
+ * SullyOS 版本与更新日志管理。
+ *
+ * 正式构建时这些值由 scripts/write-version-manifest.mjs 从 Git 自动生成，
+ * 再由 vite.config.ts 注入；这里的旧值只作为未构建开发环境的安全兜底。
  */
 
-export const CURRENT_VERSION = '1.3.0';
-export const VERSION_DATE = '2026-08-07';
+const FALLBACK_VERSION = '1.3.0';
+const FALLBACK_DATE = '2026-08-07';
 
 export interface VersionLog {
     version: string;
@@ -13,7 +16,24 @@ export interface VersionLog {
     breaking?: boolean;
 }
 
-export const VERSION_LOGS: VersionLog[] = [
+const generatedChanges = typeof __APP_VERSION_CHANGES__ !== 'undefined' && Array.isArray(__APP_VERSION_CHANGES__)
+    ? __APP_VERSION_CHANGES__.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+
+export const CURRENT_VERSION = typeof __APP_VERSION__ === 'string' && __APP_VERSION__
+    ? __APP_VERSION__
+    : FALLBACK_VERSION;
+export const VERSION_DATE = typeof __APP_VERSION_DATE__ === 'string' && __APP_VERSION_DATE__
+    ? __APP_VERSION_DATE__
+    : FALLBACK_DATE;
+
+const generatedTitle = typeof __APP_VERSION_TITLE__ === 'string' && __APP_VERSION_TITLE__
+    ? __APP_VERSION_TITLE__
+    : 'SullyOS 自动构建更新';
+
+// 有构建清单时只展示 Git 自动生成的本次提交；不会再被一段手写的 1.3.0 日志覆盖。
+// 未运行构建脚本时保留少量历史兜底，保证开发服务器仍可打开设置页。
+const FALLBACK_LOGS: VersionLog[] = [
     {
         version: '1.3.0',
         date: '2026-08-07',
@@ -25,31 +45,11 @@ export const VERSION_LOGS: VersionLog[] = [
             '【稳定性】没有更新或更新失败时不重开游戏、不修改本地数据',
         ],
     },
-    {
-        version: '1.2.0',
-        date: '2026-08-07',
-        title: '稳定性大幅增强 + Echoes 界面美化',
-        changes: [
-            '【稳定性】Echoes 主题崩溃修复：3层降级防护，旧存档不再白屏',
-            '【稳定性】键盘闪退修复：输入时键盘不再频繁收回',
-            '【稳定性】全局资源更新：设置页和崩溃页都能一键拉取最新前端',
-            '【Echoes】选项默认展开：精美渐变卡片 + 点击收起',
-            '【Echoes】滚动位置记忆：切 Tab 回来自动恢复阅读位置',
-            '【Echoes】输入区精简：高度压缩 30%，更精巧不占屏幕',
-        ],
-    },
-    {
-        version: '1.1.0',
-        date: '2026-08-06',
-        title: 'Echoes 沉浸式游戏系统',
-        changes: [
-            '新增 Echoes：独立的 AI 沉浸式游戏系统',
-            '支持自定义世界、身份、角色、规则、文风和 UI',
-            '小说化叙事 + 连续性保障 + 玩家能动性',
-            '多档位选择：阅读档/互动档/沉浸档/沙盒档',
-        ],
-    },
 ];
+
+export const VERSION_LOGS: VersionLog[] = generatedChanges.length > 0
+    ? [{ version: CURRENT_VERSION, date: VERSION_DATE, title: generatedTitle, changes: generatedChanges }]
+    : FALLBACK_LOGS;
 
 export const getLastSeenVersion = (): string | null => {
     try {

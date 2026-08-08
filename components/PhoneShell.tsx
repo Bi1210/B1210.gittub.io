@@ -1,7 +1,7 @@
 
 
 
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { IMPORT_IN_PROGRESS_KEY, useOS } from '../context/OSContext';
 import StatusBar from './os/StatusBar';
 import Launcher from '../apps/Launcher';
@@ -28,12 +28,22 @@ const lazyApp = (factory: () => Promise<{ default: React.ComponentType<any> }>):
 const LAZY_UNINITIALIZED = -1;
 const LAZY_PENDING = 0;
 const LAZY_REJECTED = 2;
+const safePreload = (Comp: PreloadableLazy): void => {
+  try {
+    const promise = Comp.preload();
+    if (promise && typeof (promise as Promise<unknown>).catch === 'function') {
+      void (promise as Promise<unknown>).catch(() => undefined);
+    }
+  } catch {
+    // 预热失败不能升级为系统级未处理 Promise 错误；真正打开时再交给错误边界。
+  }
+};
 const warmLazy = (Comp: PreloadableLazy): void => {
   try {
     const payload: any = (Comp as any)?._payload;
     const init: any = (Comp as any)?._init;
     if (!payload || typeof init !== 'function' || payload._status !== LAZY_UNINITIALIZED) {
-      Comp.preload(); // 已在加载/已加载，或拿不到内部结构 → 仅预热 Vite 模块
+      safePreload(Comp); // 已在加载/已加载，或拿不到内部结构 → 仅预热 Vite 模块
       return;
     }
     init(payload); // 触发下载 + 解析负载
@@ -49,7 +59,7 @@ const warmLazy = (Comp: PreloadableLazy): void => {
       });
     }
   } catch {
-    try { Comp.preload(); } catch { /* ignore */ }
+    safePreload(Comp);
   }
 };
 
@@ -483,6 +493,47 @@ const PhoneShell: React.FC = () => {
   const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError } = useOS();
   const useIOSStandaloneLayout = isIOSStandaloneWebApp();
 
+  // 桌面常驻一棵 Launcher，应用只在其上方切换。关闭时先淡出 App 层，
+  // 让已经存在的桌面层同步淡入，避免「先卸载 App、再挂载桌面」造成闪屏和硬切。
+  const APP_EXIT_MS = 220;
+  const [displayedApp, setDisplayedApp] = useState<AppID>(activeApp);
+  const appExitTimerRef = useRef<number | null>(null);
+  const appClosing = activeApp === AppID.Launcher && displayedApp !== AppID.Launcher;
+  const appToRender = activeApp === AppID.Launcher ? displayedApp : activeApp;
+  // Echoes 保持旧的单层宿主：不进入本轮新增的 opacity/contain/交叉淡入层。
+  // 这样全局转场修复不会改变 Echoes 的滚动、输入、safe-area 或主题渲染。
+  const preserveEchoesHost = activeApp === AppID.Echoes
+    || (activeApp === AppID.Launcher && displayedApp === AppID.Echoes);
+
+  useLayoutEffect(() => {
+    if (appExitTimerRef.current !== null) {
+      window.clearTimeout(appExitTimerRef.current);
+      appExitTimerRef.current = null;
+    }
+
+    if (activeApp === AppID.Launcher) {
+      if (displayedApp === AppID.Echoes) {
+        // Echoes 不参与全局退场：在首次 paint 前恢复旧宿主，保持其原结构与行为。
+        setDisplayedApp(AppID.Launcher);
+      } else if (displayedApp !== AppID.Launcher) {
+        appExitTimerRef.current = window.setTimeout(() => {
+          appExitTimerRef.current = null;
+          setDisplayedApp(AppID.Launcher);
+        }, APP_EXIT_MS);
+      }
+    } else if (displayedApp !== activeApp) {
+      // 打开或 App 间切换不等待：新 App 立即进入自己的淡入层。
+      setDisplayedApp(activeApp);
+    }
+
+    return () => {
+      if (appExitTimerRef.current !== null) {
+        window.clearTimeout(appExitTimerRef.current);
+        appExitTimerRef.current = null;
+      }
+    };
+  }, [activeApp, displayedApp]);
+
   // 三档顶部状态栏：安全显示 / 紧凑显示 / 隐藏。旧存档仍由 hideStatusBar 兼容解析。
   // compact 把时间放进 safe-area，本体顶栏只让出 max(safe-area, 1.5rem)，避免顶部再多一整行。
   const statusBarMode = resolveStatusBarMode(theme.statusBarMode, theme.hideStatusBar);
@@ -830,8 +881,8 @@ const PhoneShell: React.FC = () => {
     );
   }
 
-  const renderApp = () => {
-    switch (activeApp) {
+  const renderApp = (appId: AppID = activeApp) => {
+    switch (appId) {
       case AppID.Settings: return <Settings />;
       case AppID.Character: return <Character />;
       case AppID.Chat: return <Chat />;
@@ -879,25 +930,59 @@ const PhoneShell: React.FC = () => {
   // 其余尚未迁移、靠外壳兜底的 App，仍由外壳用单一来源变量 --safe-* 统一让出安全区，避免顶栏怼进状态栏。
   // 自理名单见 utils/safeAreaApps.ts（迁移一个 App = 把它加进名单 + 顶栏用 --chrome-top 自己让位）。
   // TODO(safe-area-A): 把剩余「未迁移」App 逐个改为自理安全区后，移除外壳这层兜底，实现全屏无色条。
-  const shellPadsSafeArea = shellHandlesSafeArea(activeApp);
+  // 普通 App 退出时沿用当前 App 的安全区；Echoes 完全绕过本轮新增的过渡层，
+  // 不改变它原有的 safe-area、滚动、输入和宿主结构。
+  const shellAppId = appClosing ? displayedApp : activeApp;
+  const shellPadsSafeArea = shellHandlesSafeArea(shellAppId);
+  const appBackdropVisible = activeApp !== AppID.Launcher || appClosing;
 
   return (
     <div className={`relative w-full h-full overflow-hidden ${theme.skin === 'liquidglass' ? 'bg-transparent' : 'bg-gradient-to-br from-pink-200 via-purple-200 to-indigo-200'} text-slate-900 font-sans select-none overscroll-none`}>
        {/* Optimized Background Layer */}
-       {/* 壁纸底层：进 App 时只柔和虚化/压暗作背景，不再做缩放「过场」——
-          进 App 的过渡感统一交给 App 容器的淡入（见下方 animate-fade-in 包裹层）。 */}
-       <div
-         className="absolute inset-0 bg-cover bg-center transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
-         style={{
-             backgroundImage: bgImageValue,
-             filter: activeApp !== AppID.Launcher ? 'blur(10px)' : 'none',
-             opacity: activeApp !== AppID.Launcher ? 0.6 : 1,
-             backfaceVisibility: 'hidden',
-             contain: useIOSStandaloneLayout ? undefined : 'strict'
-         }}
-       />
-       
-       <div className={`absolute inset-0 transition-all duration-500 ${activeApp === AppID.Launcher ? 'bg-transparent' : theme.skin === 'liquidglass' ? 'sully-liquidglass-backdrop' : 'bg-white/50 backdrop-blur-3xl'}`} />
+       {preserveEchoesHost ? (
+         // Echoes 沿用原来的单层背景逻辑；全局转场不能改变它的主题、滚动或 safe-area。
+         <>
+           <div
+             className="absolute inset-0 bg-cover bg-center transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
+             style={{
+               backgroundImage: bgImageValue,
+               filter: activeApp !== AppID.Launcher ? 'blur(10px)' : 'none',
+               opacity: activeApp !== AppID.Launcher ? 0.6 : 1,
+               backfaceVisibility: 'hidden',
+               contain: useIOSStandaloneLayout ? undefined : 'strict',
+             }}
+           />
+           <div className={`absolute inset-0 transition-all duration-500 ${activeApp === AppID.Launcher ? 'bg-transparent' : theme.skin === 'liquidglass' ? 'sully-liquidglass-backdrop' : 'bg-white/50 backdrop-blur-3xl'}`} />
+         </>
+       ) : (
+         // 其他 App 只让独立滤镜层做 opacity 交叉；不动画 filter/backdrop-filter 本身。
+         <>
+           <div
+             className="absolute inset-0 bg-cover bg-center"
+             style={{
+               backgroundImage: bgImageValue,
+               backfaceVisibility: 'hidden',
+               contain: useIOSStandaloneLayout ? undefined : 'strict',
+             }}
+           />
+           <div
+             className="absolute inset-0 bg-cover bg-center"
+             style={{
+               backgroundImage: bgImageValue,
+               filter: 'blur(10px)',
+               transform: 'scale(1.04)',
+               opacity: appBackdropVisible ? 0.6 : 0,
+               transition: 'opacity 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+               pointerEvents: 'none',
+               backfaceVisibility: 'hidden',
+             }}
+           />
+           <div
+             className={`absolute inset-0 ${activeApp === AppID.Launcher ? 'bg-transparent' : theme.skin === 'liquidglass' ? 'sully-liquidglass-backdrop' : 'bg-white/50 backdrop-blur-3xl'}`}
+             style={{ pointerEvents: 'none' }}
+           />
+         </>
+       )}
        
        {/* 外壳安全区两种策略：
           - 未迁移 App：外壳铺满 body（含 --app-height 多出的 +safe-bottom 溢出区），用 padding 让位安全区，
@@ -912,21 +997,38 @@ const PhoneShell: React.FC = () => {
             : { bottom: 'var(--standalone-safe-area-bottom, 0px)' }
         }
       >
-          {/* App Container */}
-          <div className="flex-1 relative overflow-hidden" style={{ contain: useIOSStandaloneLayout ? undefined : 'layout style paint' }}>
-            <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
-              <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
-                {/* 统一「淡入」过渡：每次切换 App 时 key 变化 → 重新挂载并淡入，
-                    让所有 App 都像个人档案那样「渐变进去」，而非瞬间咚一下。
-                    关键：只动 opacity、不做 scale/translate —— 否则会把整棵（常含大量头像图片的）
-                    App 子树栅格化进 transform 图层，角色列表类 App 首帧会卡顿一下（停顿一秒）。
-                    时长也压短，进重 App 时不至于多等。 */}
-                <div key={activeApp} className="w-full h-full" style={{ animation: 'appEnterFade 200ms ease-out both' }}>
-                  <style>{`@keyframes appEnterFade{from{opacity:0}to{opacity:1}}`}</style>
-                  {renderApp()}
+          {/* App Container：Echoes 使用旧宿主；其他 App 使用可逆的 opacity 交叉淡入。 */}
+          <div className="flex-1 relative overflow-hidden" style={{ contain: preserveEchoesHost || useIOSStandaloneLayout ? undefined : 'layout style paint' }}>
+            {preserveEchoesHost ? (
+              <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
+                <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
+                  <div className="w-full h-full">{renderApp(activeApp)}</div>
+                </Suspense>
+              </AppErrorBoundary>
+            ) : (
+              <>
+                <div
+                  className={`absolute inset-0 sully-launcher-layer ${activeApp === AppID.Launcher ? 'sully-layer-visible' : 'sully-layer-hidden'}`}
+                  style={{ pointerEvents: activeApp === AppID.Launcher && !appClosing ? 'auto' : 'none' }}
+                >
+                  <Launcher />
                 </div>
-              </Suspense>
-            </AppErrorBoundary>
+                {appToRender !== AppID.Launcher && (
+                  <div
+                    className={`absolute inset-0 sully-app-layer ${appClosing ? 'sully-app-layer-closing' : 'sully-app-layer-visible'}`}
+                    style={{ pointerEvents: appClosing ? 'none' : 'auto' }}
+                  >
+                    <AppErrorBoundary onCloseApp={closeApp} resetKey={`${appToRender}:${activeCharacterId || 'none'}`}>
+                      <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
+                        <div key={appToRender} className="w-full h-full">
+                          {renderApp(appToRender)}
+                        </div>
+                      </Suspense>
+                    </AppErrorBoundary>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* Overlays: Status Bar (Top) —— 常驻渲染：时钟/电量条由开关+平台默认决定显隐（StatusBar 内部 isStatusBarHidden），

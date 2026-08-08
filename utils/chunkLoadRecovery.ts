@@ -41,6 +41,22 @@ export const isChunkLoadError = (err: unknown): boolean => {
  * 尝试自动整页刷新来恢复 chunk 加载失败。
  * 返回 true = 已发起刷新 (页面即将消失); false = 冷却期内/存储不可用, 调用方应展示手动刷新按钮。
  */
+const clearRuntimeCachesBeforeReload = async (): Promise<void> => {
+    // 先清掉旧 Service Worker 和 Cache Storage，再带新的查询参数重载。
+    // 仅清前端资源缓存，不触碰 IndexedDB / localStorage 用户数据。
+    if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(async registration => {
+            try { await registration.update(); } catch { /* 网络暂时不可用 */ }
+            try { await registration.unregister(); } catch { /* 继续清 Cache Storage */ }
+        }));
+    }
+    if ('caches' in window) {
+        const names = await window.caches.keys();
+        await Promise.all(names.map(name => window.caches.delete(name)));
+    }
+};
+
 export const tryAutoReloadForChunkError = (): boolean => {
     let allowed = false;
     try {
@@ -48,10 +64,25 @@ export const tryAutoReloadForChunkError = (): boolean => {
         allowed = Date.now() - last >= RELOAD_COOLDOWN_MS;
         if (allowed) sessionStorage.setItem(RELOAD_MARK_KEY, String(Date.now()));
     } catch {
-        // sessionStorage 不可用时没法防刷新循环 → 不自动刷, 走手动按钮兜底
+        // sessionStorage 不可用时没法防刷新循环 → 走手动按钮兜底
         allowed = false;
     }
     if (!allowed) return false;
-    window.location.reload();
+
+    void (async () => {
+        const recoveryUrl = new URL(window.location.href);
+        recoveryUrl.searchParams.set('__sully_chunk_recovery', String(Date.now()));
+        try {
+            await clearRuntimeCachesBeforeReload();
+        } catch {
+            // 即使缓存接口失败，也必须继续重载，不能把错误页卡在“正在恢复”。
+        } finally {
+            try {
+                window.location.replace(recoveryUrl.toString());
+            } catch {
+                window.location.reload();
+            }
+        }
+    })();
     return true;
 };

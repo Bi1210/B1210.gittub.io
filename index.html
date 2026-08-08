@@ -413,7 +413,77 @@
       html[data-skin="liquidglass"] .sully-global-modal-card label {
         color: rgba(15, 23, 42, 0.88) !important;
       }
+      /* 共享弹窗的统一退场：只动 opacity，不对 backdrop-filter 卡片做 transform。
+         iOS WebKit 会把 transform + backdrop-filter 合成一张灰色离屏纹理，导致刚打开时
+         先灰、约半秒后才恢复壁纸折射。先静态预热玻璃，再淡入；关闭则保留 DOM 180ms。 */
+      .sully-modal-overlay {
+        opacity: 0;
+        transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+        contain: paint;
+      }
+      .sully-modal-overlay-open {
+        opacity: 1;
+      }
+      .sully-modal-overlay-closing {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .sully-modal-card {
+        opacity: 0;
+        transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        isolation: isolate;
+      }
+      .sully-modal-overlay-open .sully-modal-card {
+        opacity: 1;
+      }
+      .sully-modal-overlay-closing .sully-modal-card {
+        opacity: 0;
+      }
+      html[data-skin="liquidglass"] .sully-global-modal-card {
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        isolation: isolate;
+      }
+      /* App / 桌面层也只做 opacity 交叉淡入，关闭时不卸载桌面再重挂。 */
+      .sully-launcher-layer,
+      .sully-app-layer {
+        opacity: 0;
+        transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
+        contain: layout paint;
+        will-change: opacity;
+      }
+      .sully-layer-visible,
+      .sully-app-layer-visible {
+        opacity: 1;
+      }
+      .sully-layer-hidden,
+      .sully-app-layer-closing {
+        opacity: 0;
+      }
+      .sully-exit-snapshot {
+        opacity: 1;
+        animation: sullyExitSnapshot 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        contain: paint;
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+      }
+      @keyframes sullyExitSnapshot {
+        from { opacity: 1; }
+        to { opacity: 0; }
+      }
       @media (prefers-reduced-motion: reduce) {
+        .sully-modal-overlay,
+        .sully-modal-card,
+        .sully-launcher-layer,
+        .sully-app-layer,
+        .sully-exit-snapshot {
+          transition: none !important;
+          animation: none !important;
+        }
+        html[data-skin="liquidglass"] .sully-lg-surface,
+
         html[data-skin="liquidglass"] .sully-lg-surface,
         html[data-skin="liquidglass"] .sully-lg-pill,
         html[data-skin="liquidglass"] .sully-lg-chrome {
