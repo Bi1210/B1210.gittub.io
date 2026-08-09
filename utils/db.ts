@@ -3600,4 +3600,31 @@ export const DB = {
           data.bankDollhouse = undefined as any;
       }, (data.bankState ? 1 : 0) + (data.bankDollhouse ? 1 : 0));
   }
+
+  async getEchoesApiConfig(): Promise<any> {
+    try {
+      return await localforage.getItem('sully_echoes_api_config') || null;
+    } catch { return null; }
+  }
+  async saveEchoesApiConfig(config: any): Promise<void> {
+    if (!config) await localforage.removeItem('sully_echoes_api_config');
+    else await localforage.setItem('sully_echoes_api_config', config);
+  }
+  async getEchoesApiLog(): Promise<any[]> {
+    try {
+      return await localforage.getItem('sully_echoes_api_log') || [];
+    } catch { return []; }
+  }
+  async appendEchoesApiLog(entry: any): Promise<void> {
+    try {
+      const log = await this.getEchoesApiLog();
+      log.unshift(entry);
+      if (log.length > 50) log.length = 50;
+      await localforage.setItem('sully_echoes_api_log', log);
+    } catch {}
+  }
+  async clearEchoesApiLog(): Promise<void> {
+    await localforage.removeItem('sully_echoes_api_log');
+  }
+
 };

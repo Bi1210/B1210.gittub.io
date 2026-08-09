@@ -4043,3 +4043,18 @@ export interface LifeSimState {
     worldInventory?: Record<string, number>;
     worldGold?: number;
 }
+
+export interface EchoesApiConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  presetId?: string;
+}
+
+export interface EchoesApiCallLogEntry {
+  timestamp: number;
+  prompt: string;
+  response: string;
+  error?: string;
+  model: string;
+}
