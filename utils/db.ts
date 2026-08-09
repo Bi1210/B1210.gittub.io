@@ -2464,6 +2464,54 @@ export const DB = {
       tx.objectStore(STORE_VR_SETTINGS).put({ id: 'apilog', entries: [] });
   },
 
+  // --- Echoes 独立 API + 调用记录（复用 vr_settings 存储表）---
+  getEchoesApiConfig: async (): Promise<any | null> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_VR_SETTINGS)) return null;
+      return new Promise((resolve) => {
+          const tx = db.transaction(STORE_VR_SETTINGS, 'readonly');
+          const req = tx.objectStore(STORE_VR_SETTINGS).get('echoes_api');
+          req.onsuccess = () => resolve(req.result?.config ?? null);
+          req.onerror = () => resolve(null);
+      });
+  },
+
+  saveEchoesApiConfig: async (config: any | null): Promise<void> => {
+      const db = await openDB();
+      const tx = db.transaction(STORE_VR_SETTINGS, 'readwrite');
+      tx.objectStore(STORE_VR_SETTINGS).put({ id: 'echoes_api', config: config ?? null });
+  },
+
+  getEchoesApiLog: async (): Promise<any[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_VR_SETTINGS)) return [];
+      return new Promise((resolve) => {
+          const tx = db.transaction(STORE_VR_SETTINGS, 'readonly');
+          const req = tx.objectStore(STORE_VR_SETTINGS).get('echoes_apilog');
+          req.onsuccess = () => resolve(req.result?.entries ?? []);
+          req.onerror = () => resolve([]);
+      });
+  },
+
+  appendEchoesApiLog: async (entry: any): Promise<void> => {
+      const db = await openDB();
+      const current = await new Promise<any[]>((resolve) => {
+          const tx = db.transaction(STORE_VR_SETTINGS, 'readonly');
+          const req = tx.objectStore(STORE_VR_SETTINGS).get('echoes_apilog');
+          req.onsuccess = () => resolve(req.result?.entries ?? []);
+          req.onerror = () => resolve([]);
+      });
+      current.unshift(entry);
+      const tx = db.transaction(STORE_VR_SETTINGS, 'readwrite');
+      tx.objectStore(STORE_VR_SETTINGS).put({ id: 'echoes_apilog', entries: current.slice(0, 120) });
+  },
+
+  clearEchoesApiLog: async (): Promise<void> => {
+      const db = await openDB();
+      const tx = db.transaction(STORE_VR_SETTINGS, 'readwrite');
+      tx.objectStore(STORE_VR_SETTINGS).put({ id: 'echoes_apilog', entries: [] });
+  },
+
   // --- 全局 API 调用记录（api_call_log 单例 store，id='log'）---
   // 只保留近 5 天的记录，超期在写入时丢弃。读出时再过滤一次兜底。
   getApiCallLog: async (): Promise<any[]> => {
@@ -3599,32 +3647,6 @@ export const DB = {
           data.bankState = undefined as any;
           data.bankDollhouse = undefined as any;
       }, (data.bankState ? 1 : 0) + (data.bankDollhouse ? 1 : 0));
-  }
-
-  async getEchoesApiConfig(): Promise<any> {
-    try {
-      return await localforage.getItem('sully_echoes_api_config') || null;
-    } catch { return null; }
-  }
-  async saveEchoesApiConfig(config: any): Promise<void> {
-    if (!config) await localforage.removeItem('sully_echoes_api_config');
-    else await localforage.setItem('sully_echoes_api_config', config);
-  }
-  async getEchoesApiLog(): Promise<any[]> {
-    try {
-      return await localforage.getItem('sully_echoes_api_log') || [];
-    } catch { return []; }
-  }
-  async appendEchoesApiLog(entry: any): Promise<void> {
-    try {
-      const log = await this.getEchoesApiLog();
-      log.unshift(entry);
-      if (log.length > 50) log.length = 50;
-      await localforage.setItem('sully_echoes_api_log', log);
-    } catch {}
-  }
-  async clearEchoesApiLog(): Promise<void> {
-    await localforage.removeItem('sully_echoes_api_log');
   }
 
 };

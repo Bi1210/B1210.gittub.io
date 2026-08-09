@@ -4049,12 +4049,14 @@ export interface EchoesApiConfig {
   apiKey: string;
   model: string;
   presetId?: string;
+  stream?: boolean;
+  temperature?: number;
 }
 
 export interface EchoesApiCallLogEntry {
-  timestamp: number;
-  prompt: string;
-  response: string;
-  error?: string;
-  model: string;
+  ts: number;
+  ok: boolean;
+  ms: number;
+  worldTitle?: string;
+  errorMessage?: string;
 }
