@@ -2,6 +2,7 @@
 
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import { installEdgeBackGesture, type EdgeGesturePhase } from '../utils/edgeBackGesture';
 import { IMPORT_IN_PROGRESS_KEY, useOS } from '../context/OSContext';
 import StatusBar from './os/StatusBar';
 import Launcher from '../apps/Launcher';
@@ -493,6 +494,21 @@ const PhoneShell: React.FC = () => {
   const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError } = useOS();
   const useIOSStandaloneLayout = isIOSStandaloneWebApp();
 
+  // Single global edge-swipe listener for every App.
+  const [edgeSwipeProgress, setEdgeSwipeProgress] = useState(0);
+  const [edgeSwipeActive, setEdgeSwipeActive] = useState(false);
+  const [edgeSwipeDragging, setEdgeSwipeDragging] = useState(false);
+  const shellContainerRef = useRef<HTMLDivElement | null>(null);
+  const edgeSwipeTimerRef = useRef<number | null>(null);
+  const edgeSwipeSettledRef = useRef(false);
+  const edgeSwipeActiveRef = useRef(false);
+  const activeAppRef = useRef(activeApp);
+  const lockedRef = useRef(isLocked);
+  const closeAppRef = useRef(closeApp);
+  activeAppRef.current = activeApp;
+  lockedRef.current = isLocked;
+  closeAppRef.current = closeApp;
+
   // 桌面常驻一棵 Launcher，应用只在其上方切换。关闭时先淡出 App 层，
   // 让已经存在的桌面层同步淡入，避免「先卸载 App、再挂载桌面」造成闪屏和硬切。
   const APP_EXIT_MS = 280;
@@ -762,6 +778,85 @@ const PhoneShell: React.FC = () => {
     };
   }, [activeApp, isLocked, closeApp, handleBack]);
 
+  // One global coordinator: a committed gesture closes the current App once.
+  useEffect(() => {
+    if (!bootDone || !isDataLoaded || isLocked) return;
+    const container = shellContainerRef.current;
+    if (!container) return;
+    const clearTimer = () => {
+      if (edgeSwipeTimerRef.current !== null) {
+        window.clearTimeout(edgeSwipeTimerRef.current);
+        edgeSwipeTimerRef.current = null;
+      }
+    };
+    const reset = () => {
+      clearTimer();
+      edgeSwipeActiveRef.current = false;
+      edgeSwipeSettledRef.current = false;
+      setEdgeSwipeActive(false);
+      setEdgeSwipeDragging(false);
+      setEdgeSwipeProgress(0);
+    };
+    const settle = (commit: boolean) => {
+      if (edgeSwipeSettledRef.current) return;
+      edgeSwipeSettledRef.current = true;
+      setEdgeSwipeDragging(false);
+      setEdgeSwipeProgress(commit ? 1 : 0);
+      edgeSwipeTimerRef.current = window.setTimeout(() => {
+        edgeSwipeTimerRef.current = null;
+        if (commit) closeAppRef.current();
+        reset();
+      }, 220);
+    };
+    const onGesture = (phase: EdgeGesturePhase, progress: number, velocityX: number) => {
+      if (phase === 'start') {
+        if (activeAppRef.current === AppID.Launcher || edgeSwipeSettledRef.current) return;
+        clearTimer();
+        edgeSwipeActiveRef.current = true;
+        setEdgeSwipeActive(true);
+        setEdgeSwipeDragging(true);
+        setEdgeSwipeProgress(0);
+      } else if (phase === 'move') {
+        if (edgeSwipeActiveRef.current && !edgeSwipeSettledRef.current) setEdgeSwipeProgress(progress);
+      } else if (phase === 'cancel') {
+        if (!edgeSwipeActiveRef.current) return;
+        edgeSwipeActiveRef.current = false;
+        settle(false);
+      } else if (phase === 'end') {
+        if (!edgeSwipeActiveRef.current || edgeSwipeSettledRef.current) return;
+        edgeSwipeActiveRef.current = false;
+        settle(progress >= 0.33 || velocityX >= 0.45);
+      }
+    };
+    const cleanup = installEdgeBackGesture(
+      container,
+      () => activeAppRef.current !== AppID.Launcher
+        && !lockedRef.current
+        && !edgeSwipeActiveRef.current
+        && !edgeSwipeSettledRef.current
+        && !showDisclaimer
+        && !showImportRecoveryPrompt
+        && !showAuthorLetter
+        && !showUpdateNotification
+        && !showLike520Popup
+        && !showWorkerUpdateReminder
+        && !showBackupReminder,
+      onGesture,
+    );
+    return () => { cleanup(); reset(); };
+  }, [
+    bootDone,
+    isDataLoaded,
+    isLocked,
+    showDisclaimer,
+    showImportRecoveryPrompt,
+    showAuthorLetter,
+    showUpdateNotification,
+    showLike520Popup,
+    showWorkerUpdateReminder,
+    showBackupReminder,
+  ]);
+
   // Force scroll to top when app changes to prevent "push up" glitches on iOS
   useEffect(() => {
       window.scrollTo(0, 0);
@@ -990,29 +1085,45 @@ const PhoneShell: React.FC = () => {
           - 已迁移 App（彼方/聊天/群聊/桌面）：自理安全区。外壳直接把底边收回到可见 viewport
             （bottom = --standalone-safe-area-bottom），不让那多出来的 34px 把 App 底部控件压到 home 条上。 */}
       <div
+        ref={shellContainerRef}
         className={`sully-shell-content absolute top-0 left-0 right-0 z-10 overflow-hidden bg-transparent overscroll-none flex flex-col ${theme.skin === 'liquidglass' ? 'sully-liquidglass-shell' : ''}`}
-        style={
-          shellPadsSafeArea
+        style={{ touchAction: 'pan-y', ...(shellPadsSafeArea
             ? { bottom: 0, paddingTop: 'var(--safe-top)', paddingBottom: 'var(--safe-bottom)' }
-            : { bottom: 'var(--standalone-safe-area-bottom, 0px)' }
-        }
+            : { bottom: 'var(--standalone-safe-area-bottom, 0px)' }) }}
       >
           {/* App Container：Echoes 使用旧宿主；其他 App 使用可逆的 opacity 交叉淡入。 */}
           <div className="flex-1 relative overflow-hidden" style={{ contain: preserveEchoesHost || useIOSStandaloneLayout ? undefined : 'layout style paint' }}>
             {preserveEchoesHost ? (
-              <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
-                <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
-                  <div className="w-full h-full">{renderApp(appToRender)}</div>
-                </Suspense>
-              </AppErrorBoundary>
+              <>
+                {edgeSwipeActive && (
+                  <div className="absolute inset-0 z-0 pointer-events-none" aria-hidden="true">
+                    <Launcher />
+                  </div>
+                )}
+                <div
+                  className="relative z-10 w-full h-full"
+                  style={{
+                    transform: edgeSwipeActive ? `translate3d(${edgeSwipeProgress * 100}%, 0, 0)` : undefined,
+                    transition: edgeSwipeDragging ? 'none' : 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+                    boxShadow: edgeSwipeActive ? `-10px 0 28px rgba(0,0,0,${0.18 * edgeSwipeProgress})` : undefined,
+                    willChange: edgeSwipeActive ? 'transform' : undefined,
+                  }}
+                >
+                  <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
+                    <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
+                      {renderApp(appToRender)}
+                    </Suspense>
+                  </AppErrorBoundary>
+                </div>
+              </>
             ) : (
               <>
                 <div
                   className={`absolute inset-0 sully-launcher-layer ${activeApp === AppID.Launcher ? 'sully-layer-visible' : 'sully-layer-hidden'}`}
                   style={{
                     pointerEvents: activeApp === AppID.Launcher && !appClosing ? 'auto' : 'none',
-                    opacity: activeApp === AppID.Launcher ? 1 : 0,
-                    transition: 'opacity 280ms cubic-bezier(0.16, 1, 0.3, 1)',
+                    opacity: activeApp === AppID.Launcher ? 1 : edgeSwipeActive ? Math.min(1, edgeSwipeProgress * 1.2) : 0,
+                    transition: edgeSwipeActive && !edgeSwipeDragging ? 'opacity 220ms cubic-bezier(0.16, 1, 0.3, 1)' : 'opacity 280ms cubic-bezier(0.16, 1, 0.3, 1)',
                     willChange: 'opacity',
                   }}
                 >
@@ -1024,8 +1135,10 @@ const PhoneShell: React.FC = () => {
                     style={{
                       pointerEvents: appClosing ? 'none' : 'auto',
                       opacity: appClosing ? 0 : 1,
-                      transition: 'opacity 280ms cubic-bezier(0.16, 1, 0.3, 1)',
-                      willChange: 'opacity',
+                      transform: edgeSwipeActive ? `translate3d(${edgeSwipeProgress * 100}%, 0, 0)` : undefined,
+                      transition: edgeSwipeActive ? (edgeSwipeDragging ? 'none' : 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)') : 'opacity 280ms cubic-bezier(0.16, 1, 0.3, 1)',
+                      boxShadow: edgeSwipeActive ? `-10px 0 28px rgba(0,0,0,${0.18 * edgeSwipeProgress})` : undefined,
+                      willChange: edgeSwipeActive ? 'transform' : 'opacity',
                     }}
                   >
                     <AppErrorBoundary onCloseApp={closeApp} resetKey={`${appToRender}:${activeCharacterId || 'none'}`}>
