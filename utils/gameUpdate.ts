@@ -4,7 +4,7 @@
  * user data are never cleared; localStorage is used only for the update handshake.
  */
 import { BUILD_LABEL } from './buildInfo';
-import { CURRENT_VERSION } from './version';
+import { CURRENT_VERSION, type VersionLog } from './version';
 
 export const UPDATE_STATUS_KEY = 'sullyos_update_status';
 export const LAST_UPDATE_VERSION_KEY = 'sullyos_last_update_version';
@@ -18,6 +18,7 @@ export interface RemoteVersionManifest {
     build?: string;
     title?: string;
     changes?: string[];
+    history?: VersionLog[];
 }
 
 export interface PullUpdateResult {
@@ -75,6 +76,11 @@ export const getRemoteVersionManifest = async (): Promise<RemoteVersionManifest 
             build: typeof data.build === 'string' ? data.build : undefined,
             title: typeof data.title === 'string' ? data.title : undefined,
             changes: Array.isArray(data.changes) ? data.changes.filter((item: unknown): item is string => typeof item === 'string').slice(0, 30) : undefined,
+            history: Array.isArray(data.history) ? data.history.filter((item: unknown): item is VersionLog => {
+                if (!item || typeof item !== 'object') return false;
+                const log = item as Partial<VersionLog>;
+                return typeof log.version === 'string' && typeof log.date === 'string' && typeof log.title === 'string' && Array.isArray(log.changes);
+            }).slice(0, 30) : undefined,
         };
     } catch {
         return null;

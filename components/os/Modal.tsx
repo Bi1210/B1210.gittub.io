@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useLayoutEffect, useState } from 'react';
 
 interface ModalProps {
     isOpen: boolean;
@@ -17,22 +17,21 @@ const MODAL_EXIT_MS = 180;
 
 const Modal: React.FC<ModalProps> = ({ isOpen, title, onClose, children, footer }) => {
     const [mounted, setMounted] = useState(isOpen);
-    const [present, setPresent] = useState(false);
+    // 打开时首帧直接可见：不再经过 requestAnimationFrame 的透明/灰色中间帧。
+    const [present, setPresent] = useState(isOpen);
 
-    useEffect(() => {
-        let frame = 0;
+    useLayoutEffect(() => {
         let timer: number | undefined;
 
         if (isOpen) {
             setMounted(true);
-            frame = window.requestAnimationFrame(() => setPresent(true));
+            setPresent(true);
         } else if (mounted) {
             setPresent(false);
             timer = window.setTimeout(() => setMounted(false), MODAL_EXIT_MS);
         }
 
         return () => {
-            if (frame) window.cancelAnimationFrame(frame);
             if (timer !== undefined) window.clearTimeout(timer);
         };
     }, [isOpen, mounted]);
@@ -41,8 +40,8 @@ const Modal: React.FC<ModalProps> = ({ isOpen, title, onClose, children, footer 
 
     return (
         <div className={`fixed inset-0 z-[100] flex items-center justify-center p-6 sully-modal-overlay ${present ? 'sully-modal-overlay-open' : 'sully-modal-overlay-closing'}`}>
-            <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-            <div className="sully-global-modal-card sully-modal-card relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl border border-white/20 overflow-hidden">
+            <div className="absolute inset-0 sully-modal-scrim" onClick={onClose} />
+            <div className="sully-global-modal-card sully-modal-card sully-popup-card relative w-full max-w-sm rounded-[2.5rem] shadow-2xl border overflow-hidden">
                 <div className="px-6 pt-6 pb-2">
                     <h3 className="text-lg font-bold text-slate-800 text-center">{title}</h3>
                 </div>

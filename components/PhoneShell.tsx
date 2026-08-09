@@ -495,7 +495,7 @@ const PhoneShell: React.FC = () => {
 
   // 桌面常驻一棵 Launcher，应用只在其上方切换。关闭时先淡出 App 层，
   // 让已经存在的桌面层同步淡入，避免「先卸载 App、再挂载桌面」造成闪屏和硬切。
-  const APP_EXIT_MS = 220;
+  const APP_EXIT_MS = 280;
   const [displayedApp, setDisplayedApp] = useState<AppID>(activeApp);
   const appExitTimerRef = useRef<number | null>(null);
   const appClosing = activeApp === AppID.Launcher && displayedApp !== AppID.Launcher;
@@ -516,13 +516,15 @@ const PhoneShell: React.FC = () => {
         // Echoes 不参与全局退场：在首次 paint 前恢复旧宿主，保持其原结构与行为。
         setDisplayedApp(AppID.Launcher);
       } else if (displayedApp !== AppID.Launcher) {
+        setAppExitPhase('closing');
         appExitTimerRef.current = window.setTimeout(() => {
           appExitTimerRef.current = null;
           setDisplayedApp(AppID.Launcher);
-        }, APP_EXIT_MS);
+          }, APP_EXIT_MS);
       }
     } else if (displayedApp !== activeApp) {
       // 打开或 App 间切换不等待：新 App 立即进入自己的淡入层。
+      setAppExitPhase('visible');
       setDisplayedApp(activeApp);
     }
 
@@ -1009,14 +1011,24 @@ const PhoneShell: React.FC = () => {
               <>
                 <div
                   className={`absolute inset-0 sully-launcher-layer ${activeApp === AppID.Launcher ? 'sully-layer-visible' : 'sully-layer-hidden'}`}
-                  style={{ pointerEvents: activeApp === AppID.Launcher && !appClosing ? 'auto' : 'none' }}
+                  style={{
+                    pointerEvents: activeApp === AppID.Launcher && !appClosing ? 'auto' : 'none',
+                    opacity: activeApp === AppID.Launcher ? 1 : 0,
+                    transition: 'opacity 280ms cubic-bezier(0.16, 1, 0.3, 1)',
+                    willChange: 'opacity',
+                  }}
                 >
                   <Launcher />
                 </div>
                 {appToRender !== AppID.Launcher && (
                   <div
                     className={`absolute inset-0 sully-app-layer ${appClosing ? 'sully-app-layer-closing' : 'sully-app-layer-visible'}`}
-                    style={{ pointerEvents: appClosing ? 'none' : 'auto' }}
+                    style={{
+                      pointerEvents: appClosing ? 'none' : 'auto',
+                      opacity: appClosing ? 0 : 1,
+                      transition: 'opacity 280ms cubic-bezier(0.16, 1, 0.3, 1)',
+                      willChange: 'opacity',
+                    }}
                   >
                     <AppErrorBoundary onCloseApp={closeApp} resetKey={`${appToRender}:${activeCharacterId || 'none'}`}>
                       <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>

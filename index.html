@@ -398,20 +398,66 @@
         -webkit-backdrop-filter: blur(24px) saturate(175%);
         backdrop-filter: blur(24px) saturate(175%);
       }
-      /* 系统通用 Modal：厚度更高，但仍让用户壁纸透过来。 */
-      html[data-skin="liquidglass"] .sully-global-modal-card {
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0.16)) !important;
-        color: rgba(15, 23, 42, 0.92) !important;
-        border-color: rgba(255, 255, 255, 0.52) !important;
-        -webkit-backdrop-filter: blur(38px) saturate(148%) contrast(106%);
-        backdrop-filter: blur(38px) saturate(148%) contrast(106%);
-        box-shadow: 0 24px 70px rgba(8, 25, 48, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82), inset 0 -20px 42px rgba(255, 255, 255, 0.06);
+      /* 系统弹窗：可读性优先。卡片使用稳定的高不透明底色，禁止 backdrop-filter 参与首帧，
+         否则 iOS WebKit 会先显示灰白离屏纹理，随后才恢复玻璃，造成截图中的闪一下。 */
+      .sully-popup-card,
+      .sully-global-modal-card {
+        background: rgba(248, 250, 252, 0.975) !important;
+        color: rgba(15, 23, 42, 0.94) !important;
+        border: 1px solid rgba(148, 163, 184, 0.24) !important;
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+        box-shadow: 0 24px 70px rgba(8, 25, 48, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+        isolation: isolate;
       }
-      html[data-skin="liquidglass"] .sully-global-modal-card h3,
-      html[data-skin="liquidglass"] .sully-global-modal-card p,
-      html[data-skin="liquidglass"] .sully-global-modal-card span,
-      html[data-skin="liquidglass"] .sully-global-modal-card label {
-        color: rgba(15, 23, 42, 0.88) !important;
+      .sully-popup-card h1, .sully-popup-card h2, .sully-popup-card h3,
+      .sully-popup-card p, .sully-popup-card label,
+      .sully-global-modal-card h1, .sully-global-modal-card h2, .sully-global-modal-card h3,
+      .sully-global-modal-card p, .sully-global-modal-card label {
+        color: rgba(15, 23, 42, 0.92) !important;
+      }
+      .sully-modal-scrim {
+        background: rgba(7, 12, 22, 0.48);
+      }
+      /* 旧页面的独立白色全屏弹窗也纳入同一规则；Echoes 树排除，不触碰其 UI。 */
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .absolute.inset-0[class*="backdrop-blur"] {
+        background: rgba(7, 12, 22, 0.48) !important;
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+      }
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) {
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        transform: none !important;
+        animation: sullyPopupOverlayIn 160ms ease-out both !important;
+      }
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative {
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        transform: none !important;
+        animation: sullyPopupStableIn 160ms ease-out both !important;
+      }
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative[class*="bg-white"] {
+        background: rgba(248, 250, 252, 0.975) !important;
+        color: rgba(15, 23, 42, 0.94) !important;
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+      }
+      @keyframes sullyPopupOverlayIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes sullyPopupStableIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative[class*="bg-white"] h1,
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative[class*="bg-white"] h2,
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative[class*="bg-white"] h3,
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative[class*="bg-white"] p,
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative[class*="bg-white"] span,
+      html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .relative[class*="bg-white"] label {
+        color: rgba(15, 23, 42, 0.92) !important;
       }
       /* 共享弹窗的统一退场：只动 opacity，不对 backdrop-filter 卡片做 transform。
          iOS WebKit 会把 transform + backdrop-filter 合成一张灰色离屏纹理，导致刚打开时
@@ -450,17 +496,29 @@
       .sully-launcher-layer,
       .sully-app-layer {
         opacity: 0;
-        transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
+        transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1);
         contain: layout paint;
         will-change: opacity;
       }
       .sully-layer-visible,
       .sully-app-layer-visible {
         opacity: 1;
+        animation: sullyLayerIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
       }
       .sully-layer-hidden,
       .sully-app-layer-closing {
         opacity: 0;
+      }
+      .sully-app-layer-closing {
+        animation: sullyLayerOut 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      @keyframes sullyLayerIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes sullyLayerOut {
+        from { opacity: 1; }
+        to { opacity: 0; }
       }
       .sully-exit-snapshot {
         opacity: 1;
