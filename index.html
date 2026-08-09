@@ -509,22 +509,10 @@
       .sully-layer-visible,
       .sully-app-layer-visible {
         opacity: 1;
-        animation: sullyLayerIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
       }
       .sully-layer-hidden,
       .sully-app-layer-closing {
         opacity: 0;
-      }
-      .sully-app-layer-closing {
-        animation: sullyLayerOut 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
-      }
-      @keyframes sullyLayerIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      @keyframes sullyLayerOut {
-        from { opacity: 1; }
-        to { opacity: 0; }
       }
       .sully-exit-snapshot {
         opacity: 1;
