@@ -38,13 +38,21 @@ const phraseLabels = [
   [/complete neutral Liquid Glass system/i, '完成中性液态玻璃系统'],
   [/integrate coherent iOS 26 Liquid Glass chrome theme/i, '接入统一的 iOS 26 液态玻璃外壳'],
   [/include API settings component/i, '补齐 API 设置组件'],
+  [/tighten popup isolation/i, '收紧弹窗隔离规则'],
+  [/remove popup blur flash/i, '移除弹窗模糊闪烁'],
+  [/restore changelog and stabilize overlays/i, '恢复更新日志并稳定全局覆盖层'],
 ];
-const translateText = (text) => {
+const translateText = (text, type, scope) => {
   const known = phraseLabels.find(([pattern]) => pattern.test(text));
   if (known) return known[1];
-  return text
+  const translated = text
     .replace(/\b(global-ui|global|shell|liquidglass|theme|update|modal|settings|app)\b/gi, (value) => scopeLabels[value.toLowerCase()] || value)
     .replace(/\b(stabilize|fix|add|remove|improve|update|include|complete|integrate)\b/gi, (value) => ({ stabilize: '稳定', fix: '修复', add: '新增', remove: '移除', improve: '改进', update: '更新', include: '补齐', complete: '完成', integrate: '接入' }[value.toLowerCase()] || value));
+  // 未收录的技术提交不把英文原文暴露给用户，统一降级为可读的中文类别说明。
+  if (!/[A-Za-z]{3,}/.test(translated)) return translated;
+  const scopeName = scopeLabels[String(scope || '').toLowerCase()] || '系统';
+  const verbs = { feat: '完善', fix: '修复', perf: '优化', refactor: '重构', docs: '补充', test: '完善', build: '整理', ci: '维护', chore: '维护', revert: '回退' };
+  return `${verbs[type] || '更新'}${scopeName}相关内容`;
 };
 
 const parseCommit = (line) => {
@@ -54,7 +62,7 @@ const parseCommit = (line) => {
   const type = (match?.[1] || 'chore').toLowerCase();
   const scope = match?.[2] || '';
   const rawText = (match?.[3] || subject).trim();
-  const text = translateText(rawText);
+  const text = translateText(rawText, type, scope);
   const label = typeLabels[type] || '更新';
   return {
     hash: hash.slice(0, 7), type, scope,
