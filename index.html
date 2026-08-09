@@ -420,6 +420,12 @@
         background: rgba(7, 12, 22, 0.48);
       }
       /* 旧页面的独立白色全屏弹窗也纳入同一规则；Echoes 树排除，不触碰其 UI。 */
+      /* 所有非 Echoes 全屏弹窗都取消动态 backdrop-filter；卡片自己仍保留各自配色。 */
+      html[data-skin="liquidglass"] .fixed.inset-0:not(:has(.echoes-root)) > .absolute.inset-0[class*="backdrop-blur"],
+      html[data-skin="liquidglass"] .fixed.inset-0:not(:has(.echoes-root))[class*="backdrop-blur"] {
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+      }
       html[data-skin="liquidglass"] .fixed.inset-0:not(.echoes-root *):has(> .relative[class*="bg-white"]) > .absolute.inset-0[class*="backdrop-blur"] {
         background: rgba(7, 12, 22, 0.48) !important;
         -webkit-backdrop-filter: none !important;
