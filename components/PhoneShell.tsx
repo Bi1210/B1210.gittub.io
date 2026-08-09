@@ -825,7 +825,7 @@ const PhoneShell: React.FC = () => {
       } else if (phase === 'end') {
         if (!edgeSwipeActiveRef.current || edgeSwipeSettledRef.current) return;
         edgeSwipeActiveRef.current = false;
-        settle(progress >= 0.33 || velocityX >= 0.45);
+        settle(progress >= 0.28 || velocityX >= 0.35);
       }
     };
     const cleanup = installEdgeBackGesture(
