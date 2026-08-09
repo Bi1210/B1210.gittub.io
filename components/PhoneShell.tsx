@@ -516,7 +516,6 @@ const PhoneShell: React.FC = () => {
         // Echoes 不参与全局退场：在首次 paint 前恢复旧宿主，保持其原结构与行为。
         setDisplayedApp(AppID.Launcher);
       } else if (displayedApp !== AppID.Launcher) {
-        setAppExitPhase('closing');
         appExitTimerRef.current = window.setTimeout(() => {
           appExitTimerRef.current = null;
           setDisplayedApp(AppID.Launcher);
@@ -524,7 +523,6 @@ const PhoneShell: React.FC = () => {
       }
     } else if (displayedApp !== activeApp) {
       // 打开或 App 间切换不等待：新 App 立即进入自己的淡入层。
-      setAppExitPhase('visible');
       setDisplayedApp(activeApp);
     }
 
