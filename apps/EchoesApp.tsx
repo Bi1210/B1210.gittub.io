@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Archive, ArrowLeft, BookOpenText, BracketsCurly, CaretDown, Check, CircleNotch, Compass,
+    Archive, ArrowLeft, ArrowRight, BookOpenText, BracketsCurly, CaretDoubleDown, CaretDoubleUp, CaretDown, CaretUp, Check, CircleNotch, Compass,
     Copy, Eye, FileText, GearSix, GitBranch, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
     X, ChartLine,
@@ -15,6 +15,20 @@ import {
 } from '../types';
 import EchoesContentRenderer from '../components/echoes/EchoesContentRenderer';
 import EchoesApiSettings from '../components/echoes/EchoesApiSettings';
+import EchoesMechanicRenderer from '../components/echoes/EchoesMechanicRenderer';
+import { applyMechanicPatches, getMechanicCatalogForPrompt } from '../utils/echoesMechanics';
+import type { EchoesMechanicInstance } from '../utils/echoesMechanicsTypes';
+import type { EchoesMechanicActionRequest } from '../utils/echoesMechanicActionsTypes';
+import { applyEchoesMechanicAction, buildEchoesMechanicActionContext, normalizeEchoesMechanicActionRequest, prepareEchoesMechanicAction } from '../utils/echoesMechanicActions';
+import { filterNovelHardFactsToLock, filterNovelMechanicPatches, getNovelRuntimeProfileState, sanitizeNovelMechanicSnapshot } from '../utils/echoesNovelRuntimeGuards';
+import { buildEchoesNovelRuntimeContext } from '../utils/echoesNovelRuntime';
+import { buildEchoesTurnOutputInstruction, parseEchoesTurnOutput } from '../utils/echoesTurnProtocol';
+import { sanitizeEchoesWorldForStorage } from '../utils/echoesWorldStorage';
+import { analyzeNovelDocument, prepareNovelAnalysis } from '../utils/echoesNovelWorkflow';
+import { createCrossoverConfigDraft, setCrossoverConfigConfirmed } from '../utils/echoesCrossover';
+import type { EchoesCrossoverConfig, EchoesCrossoverRole, EchoesCanonPolicy, EchoesSpoilerMode } from '../utils/echoesCrossoverTypes';
+import type { ParsedNovel } from '../utils/echoesNovelTypes';
+
 
 const ALL_FORMATS: EchoesFormat[] = [
     'text', 'markdown', 'html', 'latex', 'code', 'json', 'xml', 'yaml', 'csv', 'tsv',
@@ -356,17 +370,17 @@ const TypewriterReveal: React.FC<{ active: boolean; children: React.ReactNode; s
  * 纯文字氛围卡：章节名 + 情绪标签 + 地点/时间。不是人物立绘，只用色块和排版营造氛围。
  */
 const MoodCard: React.FC<{
-    chapter: string; mood?: string; location: string; time: string; accent: string; palette: { panel: string; border: string; muted: string; text: string };
-}> = ({ chapter, mood, location, time, accent, palette }) => (
+    chapter: string; mood?: string; sceneType?: string; location: string; time: string; accent: string; palette: { panel: string; border: string; muted: string; text: string };
+}> = ({ chapter, mood, sceneType, location, time, accent, palette }) => (
     <div className="mb-4 overflow-hidden rounded-2xl border" style={{ borderColor: palette.border, background: `linear-gradient(135deg, ${accent}12, ${palette.panel})` }}>
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
                 <div className="flex items-center gap-2">
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
                     <span className="truncate text-[13px] font-bold" style={{ color: palette.text }}>{chapter}</span>
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-[10px]" style={{ color: palette.muted }}>
-                    <span>{time}</span><span>·</span><span>{location}</span>
+                    <span>{time}</span><span>·</span><span>{location}</span>{sceneType && <><span>·</span><span className="truncate">{sceneType}</span></>}
                 </div>
             </div>
             {mood && <span className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold" style={{ background: `${accent}20`, color: accent }}>{mood}</span>}
@@ -457,11 +471,22 @@ const applyDirectorPatch = (before: EchoesDirectorState, raw: any): EchoesDirect
     return next;
 };
 
-function normalizeTurns(rawTurns: unknown, initialState: EchoesState, initialDirector: EchoesDirectorState, initialSummary: string): EchoesTurn[] {
+function normalizeTurns(
+    rawTurns: unknown,
+    initialState: EchoesState,
+    initialDirector: EchoesDirectorState,
+    initialSummary: string,
+    profile?: EchoesWorld['novelProfile'],
+    initialMechanics: EchoesMechanicInstance[] = [],
+    initialHardFacts: string[] = [],
+): EchoesTurn[] {
     if (!Array.isArray(rawTurns)) return [];
     let cursorState = cloneState(initialState);
     let cursorDirector = cloneDirector(initialDirector);
+    const profileState = getNovelRuntimeProfileState(profile);
     let cursorSummary = initialSummary;
+    let cursorHardFacts = filterNovelHardFactsToLock(initialHardFacts, profile, { allowUnattributedFacts: profileState === 'none' }).facts;
+    let cursorMechanics = sanitizeNovelMechanicSnapshot(initialMechanics, profile, [], Date.now());
     return rawTurns.slice(-500).map((raw: any, index): EchoesTurn => {
         const beforeState = normalizeState(raw?.beforeState, cursorState);
         const afterState = normalizeState(raw?.afterState, beforeState);
@@ -480,23 +505,64 @@ function normalizeTurns(rawTurns: unknown, initialState: EchoesState, initialDir
                 collapsible: !!block?.collapsible,
             } as EchoesContentBlock;
         });
+        const createdAt = typeof raw?.createdAt === 'number' ? raw.createdAt : Date.now() + index;
+        const rawBeforeMechanics = profileState === 'none' && Array.isArray(raw?.beforeMechanics)
+            ? raw.beforeMechanics
+            : cursorMechanics;
+        const beforeMechanics = sanitizeNovelMechanicSnapshot(rawBeforeMechanics, profile, cursorMechanics, createdAt);
+        const normalizedMechanicAction = normalizeEchoesMechanicActionRequest(raw?.mechanicAction);
+        const localActionResult = normalizedMechanicAction
+            ? applyEchoesMechanicAction(beforeMechanics, normalizedMechanicAction, { profile, now: createdAt })
+            : undefined;
+        const localPatches = localActionResult?.accepted && localActionResult.patch ? [localActionResult.patch] : [];
+        const localBaseMechanics = applyMechanicPatches(beforeMechanics, localPatches, createdAt);
+        const patchGate = filterNovelMechanicPatches(raw?.mechanicPatches, profile, localBaseMechanics);
+        const afterAiMechanics = applyMechanicPatches(localBaseMechanics, patchGate.patches, createdAt);
+        const rawAfterMechanics = profileState === 'none' && Array.isArray(raw?.afterMechanics)
+            ? sanitizeNovelMechanicSnapshot(raw.afterMechanics, profile, afterAiMechanics, createdAt)
+            : undefined;
+        // Legacy worlds may have a trusted bounded after snapshot without the
+        // newer patch ledger. Valid/quarantined profiles always replay from
+        // the cursor and gated patches instead of trusting that snapshot.
+        const afterMechanics = rawAfterMechanics || applyMechanicPatches(afterAiMechanics, localPatches, createdAt);
+        const rawBeforeHardFacts = profileState === 'none' && Array.isArray(raw?.beforeHardFacts)
+            ? filterNovelHardFactsToLock(raw.beforeHardFacts, profile, { allowUnattributedFacts: true }).facts
+            : undefined;
+        const beforeHardFacts = rawBeforeHardFacts || cursorHardFacts;
+        const hardFactsToLock = filterNovelHardFactsToLock(raw?.hardFactsToLock ?? [], profile).facts;
+        const rawAfterHardFacts = profileState === 'none' && Array.isArray(raw?.afterHardFacts)
+            ? filterNovelHardFactsToLock(raw.afterHardFacts, profile, { allowUnattributedFacts: true }).facts
+            : undefined;
+        const afterHardFacts = rawAfterHardFacts || Array.from(new Set([...beforeHardFacts, ...hardFactsToLock])).slice(-200);
         const turn: EchoesTurn = {
             id: cleanText(raw?.id) || `restored-turn-${index}`,
             action: cleanText(raw?.action) || '（继续）',
+            playerAction: cleanText(raw?.playerAction) || undefined,
             blocks: blocks.length ? blocks : [{ id: `restored-${index}-fallback`, kind: 'narrative', format: 'text', content: '（此回合没有可显示的正文）' }],
             suggestions: Array.isArray(raw?.suggestions) ? raw.suggestions.map(cleanText).filter(Boolean).slice(0, 6) : [],
+            choices: Array.isArray(raw?.choices) ? raw.choices : [],
+            endingTriggered: raw?.endingTriggered,
             chapter: cleanText(raw?.chapter) || afterState.chapter,
             mood: cleanText(raw?.mood).slice(0, 20) || undefined,
             beforeState, afterState, beforeDirector, afterDirector,
             beforeContinuitySummary: cleanText(raw?.beforeContinuitySummary) || cursorSummary,
             afterContinuitySummary: cleanText(raw?.afterContinuitySummary) || cursorSummary,
             beforeKnownFacts: Array.isArray(raw?.beforeKnownFacts) ? raw.beforeKnownFacts.map(cleanText).filter(Boolean).slice(-200) : undefined,
-            beforeHardFacts: Array.isArray(raw?.beforeHardFacts) ? raw.beforeHardFacts.map(cleanText).filter(Boolean).slice(-200) : undefined,
-            createdAt: typeof raw?.createdAt === 'number' ? raw.createdAt : Date.now() + index,
+            beforeHardFacts,
+            hardFactsToLock,
+            hardFactsRecorded: true,
+            afterHardFacts,
+            beforeMechanics,
+            mechanicPatches: patchGate.patches,
+            afterMechanics,
+            ...(normalizedMechanicAction ? { mechanicAction: normalizedMechanicAction } : {}),
+            createdAt,
         };
         cursorState = afterState;
         cursorDirector = afterDirector;
         cursorSummary = turn.afterContinuitySummary || cursorSummary;
+        cursorHardFacts = afterHardFacts;
+        cursorMechanics = afterMechanics;
         return turn;
     });
 }
@@ -578,7 +644,11 @@ const normalizeUIProfile = (raw: unknown): EchoesUIProfile => {
 };
 
 const normalizeWorld = (raw: any): EchoesWorld => {
-    const source = raw && typeof raw === 'object' ? raw : {};
+    const rawSource = raw && typeof raw === 'object' ? raw : {};
+    // Normalize imported/legacy objects through the same fail-closed storage
+    // boundary before deriving any runtime cursor. This keeps explicit null or
+    // malformed Profile data quarantined instead of silently becoming legacy.
+    const source = sanitizeEchoesWorldForStorage(rawSource) as any;
     const rawState = source.state;
     const formats = Array.isArray(source.allowedFormats)
         ? source.allowedFormats.filter((item: unknown): item is EchoesFormat => ALL_FORMATS.includes(item as EchoesFormat))
@@ -593,7 +663,18 @@ const normalizeWorld = (raw: any): EchoesWorld => {
     const initialDirector = normalizeDirector(source.initialDirector || legacyFirstTurn?.beforeDirector || director);
     const continuitySummary = cleanText(source.continuitySummary).slice(0, 4000);
     const initialContinuitySummary = cleanText(source.initialContinuitySummary || legacyFirstTurn?.beforeContinuitySummary);
-    const turns = normalizeTurns(source.turns, initialState, initialDirector, initialContinuitySummary);
+    const novelProfile = source.novelProfile && typeof source.novelProfile === 'object' ? source.novelProfile : undefined;
+    const initialHardFacts = filterNovelHardFactsToLock(source.initialHardFacts, novelProfile, { allowUnattributedFacts: getNovelRuntimeProfileState(novelProfile) === 'none' }).facts;
+    const initialMechanics = sanitizeNovelMechanicSnapshot(source.initialMechanics, novelProfile, [], Date.now());
+    const turns = normalizeTurns(source.turns, initialState, initialDirector, initialContinuitySummary, novelProfile, initialMechanics, initialHardFacts);
+    const resolvedState = turns.length ? turns[turns.length - 1].afterState : state;
+    const resolvedDirector = turns.length ? (turns[turns.length - 1].afterDirector || director) : director;
+    const resolvedSummary = turns.length ? (turns[turns.length - 1].afterContinuitySummary || continuitySummary) : continuitySummary;
+    const mechanics = turns.length ? (turns[turns.length - 1].afterMechanics || initialMechanics) : sanitizeNovelMechanicSnapshot(source.mechanics, novelProfile, initialMechanics);
+    const hardFacts = turns.length
+        ? (turns[turns.length - 1].afterHardFacts || initialHardFacts)
+        : filterNovelHardFactsToLock(source.hardFacts, novelProfile, { allowUnattributedFacts: getNovelRuntimeProfileState(novelProfile) === 'none' }).facts;
+    const knownFacts = Array.isArray(source.knownFacts) ? source.knownFacts.map(cleanText).filter(Boolean).slice(-200) : [];
     return {
         ...source,
         id: cleanText(source.id) || `echoes-${Date.now()}`,
@@ -607,15 +688,19 @@ const normalizeWorld = (raw: any): EchoesWorld => {
         formattingPreference: ['adaptive', 'novel', 'records', 'technical'].includes(source.formattingPreference) ? source.formattingPreference : 'adaptive',
         ui,
         initialState,
+        initialHardFacts,
         initialDirector,
         initialContinuitySummary,
-        state,
-        director,
+        state: resolvedState,
+        director: resolvedDirector,
         writingGuide: normalizeWritingGuide(source.writingGuide),
         protocol: normalizeProtocol(source.protocol),
-        continuitySummary,
-        hardFacts: Array.isArray(source.hardFacts) ? source.hardFacts.map(cleanText).filter(Boolean).slice(-200) : [],
-        knownFacts: Array.isArray(source.knownFacts) ? source.knownFacts.map(cleanText).filter(Boolean).slice(-200) : [],
+        continuitySummary: resolvedSummary,
+        hardFacts,
+        knownFacts,
+        novelProfile,
+        mechanics,
+        initialMechanics,
         turns,
         createdAt: typeof source.createdAt === 'number' ? source.createdAt : Date.now(),
         updatedAt: typeof source.updatedAt === 'number' ? source.updatedAt : Date.now(),
@@ -655,8 +740,18 @@ const normalizeBlocks = (payload: any, allowed: EchoesFormat[], fallback: string
 };
 
 const normalizeSuggestions = (payload: any): string[] => {
-    const source = Array.isArray(payload?.suggestions) ? payload.suggestions : (Array.isArray(payload?.suggested_actions) ? payload.suggested_actions : []);
-    return source.map((item: any) => typeof item === 'string' ? item.trim() : cleanText(item?.label || item?.text)).filter(Boolean).slice(0, 6);
+    // Formal choices are preferred when they contain enabled entries;
+    // suggestions remains the persisted compatibility shape used by the
+    // existing Echoes UI.
+    const choices = Array.isArray(payload?.choices) ? payload.choices : [];
+    const enabledChoices = choices.filter((item: any) => typeof item === 'string' || item?.disabled !== true);
+    const source = enabledChoices.length
+        ? enabledChoices
+        : (Array.isArray(payload?.suggestions) ? payload.suggestions : (Array.isArray(payload?.suggested_actions) ? payload.suggested_actions : []));
+    return source
+        .map((item: any) => typeof item === 'string' ? item.trim() : cleanText(item?.label || item?.text))
+        .filter(Boolean)
+        .slice(0, 6);
 };
 
 const applyStatePatch = (before: EchoesState, raw: any): EchoesState => {
@@ -716,38 +811,37 @@ const getModeInstruction = (mode: EchoesMode): string => {
 };
 
 const EchoesApp: React.FC = () => {
-    const { closeApp, apiConfig, apiPresets, addToast, registerBackHandler } = useOS();
-    const [view, setView] = useState<'lobby' | 'create' | 'play'>('lobby');
+    const { closeApp, apiConfig, apiPresets, addToast } = useOS();
+    const [view, setView] = useState<'lobby' | 'create' | 'cover' | 'play'>('lobby');
     const [showApiSettings, setShowApiSettings] = useState(false);
+    const [showQuickTools, setShowQuickTools] = useState(false);
+    const [confirmRestart, setConfirmRestart] = useState(false);
     const [worlds, setWorlds] = useState<EchoesWorld[]>([]);
     const [activeWorld, setActiveWorld] = useState<EchoesWorld | null>(null);
-
-    // 侧滑/返回键：create/play → 回 lobby；lobby 返回 false 退出 App
-    const viewRef = useRef(view);
-    viewRef.current = view;
-    useEffect(() => {
-        return registerBackHandler(() => {
-            if (viewRef.current === 'lobby') return false;
-            setView('lobby');
-            setActiveWorld(null);
-            return true;
-        });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [registerBackHandler]);
-
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [input, setInput] = useState('');
     const [sourceVisible, setSourceVisible] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    const [settingsSection, setSettingsSection] = useState<'appearance' | 'experience' | 'writing' | 'data'>('appearance');
     const [showInspector, setShowInspector] = useState(false);
     const [showWritingGuideSheet, setShowWritingGuideSheet] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [openFold, setOpenFold] = useState<string>('world'); // 创建界面当前展开的折叠块ID
     const [createStep, setCreateStep] = useState(1); // 创建界面步骤：1=世界观 2=游戏设定 3=可选细节
-    const [activeTab, setActiveTab] = useState<'story' | 'relations' | 'status'>('story'); // 游玩界面底部三个 Tab
+    const [activeTab, setActiveTab] = useState<'story' | 'progress' | 'relations' | 'archive'>('story'); // 世界内部四个入口；章节归入进展
     const [showRawState, setShowRawState] = useState(false); // 状态页里的原始 JSON 折叠开关
+    const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
+    const [showNaturalProgressHint, setShowNaturalProgressHint] = useState(false);
+    const [naturalProgressConfirmed, setNaturalProgressConfirmed] = useState(false);
+    const [isNearLatest, setIsNearLatest] = useState(true);
+    const [isAtStoryTop, setIsAtStoryTop] = useState(true);
+    const [creationMethod, setCreationMethod] = useState<'manual' | 'ai' | 'novel'>('manual');
     const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'] });
+    const [aiIdea, setAiIdea] = useState('');
+    const [crossoverDraft, setCrossoverDraft] = useState<Partial<EchoesCrossoverConfig>>({});
+    const [parsedNovelFile, setParsedNovelFile] = useState<ParsedNovel | null>(null);
+    const [novelAnalysis, setNovelAnalysis] = useState<any>(null);
     const [draftWritingGuide, setDraftWritingGuide] = useState<EchoesWritingGuide>({ ...DEFAULT_WRITING_GUIDE });
     const [draftProtocol, setDraftProtocol] = useState<EchoesProtocolConfig>({ ...DEFAULT_PROTOCOL });
     const [draftUI, setDraftUI] = useState<EchoesUIProfile>(DEFAULT_UI);
@@ -758,8 +852,11 @@ const EchoesApp: React.FC = () => {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     // React 状态更新有一个渲染间隔；用 ref 拦住同一帧内的重复点击，避免并发生成覆盖存档。
     const generatingRef = useRef(false);
+    // 首次读取世界后自动进入最近世界封面；用户主动切换世界时不再强制弹回。
+    const initialWorldBootRef = useRef(false);
     // 滚动位置记忆：离开故事页时记录，回来时恢复（避免切 Tab 又切回来时弹到顶部）
     const scrollPosRef = useRef<number>(0);
+    const scrollRestoredWorldRef = useRef<string | null>(null);
     const storyContainerRef = useRef<HTMLDivElement | null>(null);
     const [liquidGlassShrunk, setLiquidGlassShrunk] = useState(false);
 
@@ -774,14 +871,56 @@ const EchoesApp: React.FC = () => {
     const loadWorlds = useCallback(async () => {
         setLoading(true);
         try {
-            const list = await DB.getAllEchoesWorlds();
-            setWorlds(list.map(normalizeWorld).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt));
+            const normalizedWorlds = list.map(normalizeWorld).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
+            setWorlds(normalizedWorlds);
+            if (!initialWorldBootRef.current && normalizedWorlds.length > 0) {
+                initialWorldBootRef.current = true;
+                setActiveWorld(normalizedWorlds[0]);
+                setView('cover');
+                setActiveTab('story');
+            }
         } catch (error: any) {
             addToastRef.current(`Echoes 存档读取失败：${error?.message || '未知错误'}`, 'error');
         } finally { setLoading(false); }
     }, []);
 
     useEffect(() => { void loadWorlds(); }, [loadWorlds]);
+
+    useEffect(() => {
+        try {
+            setNaturalProgressConfirmed(window.localStorage.getItem('echoes-natural-progress-confirmed') === '1');
+        } catch { /* private browsing/storage disabled: keep the one-time hint */ }
+    }, []);
+
+    useEffect(() => {
+        if (view !== 'play' || activeTab !== 'story' || !activeWorld) return;
+        const frame = window.requestAnimationFrame(() => {
+            const element = storyContainerRef.current;
+            if (!element) return;
+            if (scrollRestoredWorldRef.current !== activeWorld.id) {
+                scrollRestoredWorldRef.current = activeWorld.id;
+                let saved: number | null = null;
+                try {
+                    const raw = window.localStorage.getItem(`echoes-scroll:${activeWorld.id}`);
+                    if (raw !== null && Number.isFinite(Number(raw))) saved = Math.max(0, Number(raw));
+                } catch { /* storage disabled: fall back to latest */ }
+                const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
+                const top = saved === null ? maxTop : Math.min(saved, maxTop);
+                element.scrollTop = top;
+                scrollPosRef.current = top;
+                setIsNearLatest(element.scrollHeight - top - element.clientHeight < 96);
+                setIsAtStoryTop(top < 72);
+                return;
+            }
+            if (!isNearLatest) return;
+            const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
+            element.scrollTo({ top: maxTop, behavior: freshTurnId ? 'smooth' : 'auto' });
+            scrollPosRef.current = maxTop;
+            setIsAtStoryTop(false);
+            try { window.localStorage.setItem(`echoes-scroll:${activeWorld.id}`, String(maxTop)); } catch { /* storage disabled */ }
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [activeWorld?.id, activeWorld?.turns.length, activeTab, view, isNearLatest, freshTurnId]);
 
     const requestAI = useCallback(async (prompt: string, maxTokens = 5000, worldTitle = ''): Promise<any> => {
         // Echoes 的配置存于本地 IndexedDB；独立配置优先，未设置时跟随聊天默认。
@@ -834,9 +973,18 @@ const EchoesApp: React.FC = () => {
         throw lastError instanceof Error ? lastError : new Error('AI 请求失败');
     }, [apiConfig]);
 
-    const basePrompt = useCallback((world: EchoesWorld, action: string, opening = false) => {
+    const basePrompt = useCallback((world: EchoesWorld, action: string, opening = false, localActionText = '') => {
         const allowed = world.allowedFormats.join('、');
         const protocol = normalizeProtocol(world.protocol);
+        const novelContext = buildEchoesNovelRuntimeContext({
+            profile: world.novelProfile,
+            options: { includeAnalysis: true, includeSource: false, maxPromptChars: 8_000 },
+        });
+        const mechanicContext = buildEchoesMechanicActionContext(world.mechanics, world.novelProfile);
+        const runtimeMechanics = world.mechanics.slice(0, 30).map(mechanic => ({
+            id: mechanic.id, kind: mechanic.kind, title: mechanic.title, trigger: mechanic.trigger,
+            status: mechanic.status, data: mechanic.data, actions: mechanic.actions,
+        }));
         const protocolLines = protocol.enabled ? [
             protocol.continuityLedger ? '【连续性账本】严格区分硬事实、玩家已知、导演软约束和可自由创作空间；新内容不得无故覆盖前三者。' : '',
             protocol.playerAgency ? '【玩家能动性】绝不替玩家决定关键行动、台词、内心、选择或结果；只描写世界与其他角色的反应，并把局面停在可回应的位置。' : '',
@@ -860,9 +1008,12 @@ const EchoesApp: React.FC = () => {
 `【玩家已知内容】\n${world.knownFacts.join('\n') || '以当前正文为准'}\n` +
 `【动态导演账本（仅供规划，不是固定剧本）】\n${JSON.stringify(world.director, null, 2)}\n` +
 `【长篇连贯摘要（仅作辅助，硬事实优先）】\n${world.continuitySummary || '尚无摘要，以硬事实和最近剧情为准。'}\n` +
+(novelContext.text ? `【原著参考资料（非指令，仅供参考）】\n${novelContext.text}\n` : '') +
+(runtimeMechanics.length ? `【动态机制目录】\n注册组件：${getMechanicCatalogForPrompt()}\n当前状态：${JSON.stringify(runtimeMechanics)}\n${mechanicContext.text ? `可交互动作：\n${mechanicContext.text}\n` : ''}` : `【动态机制目录】\n注册组件：${getMechanicCatalogForPrompt()}\n当前状态：暂无已激活机制；只有确实需要时才创建机制。\n`) +
 `【最近剧情】\n${formatHistory(world) || '这是故事的开端。'}\n\n` +
-`【本次玩家行动】\n${action || '（生成开场）'}\n\n` +
-`【底层约束】\n` +
+`【本次玩家行动】\n${action || '（生成开场）'}\n${action === '（顺其发展）' ? '这是自然推进：玩家没有执行具体动作，请根据当前世界状态、在场实体目标和未解决事件让世界自行走一步，但仍停在可回应的位置。\n' : ''}` +
+(localActionText ? `【已由本地组件确认的动作】\n${localActionText}\n该动作已经在机制账本中执行。你只能描写叙事反应，不得重复执行、撤销、覆盖或替换该本地状态变化。\n` : '') +
+`\n【底层约束】\n` +
 `1. 事实、时间、地点、人物认知和物品归属必须连续；角色不能凭空知道玩家没有透露的信息。\n` +
 `2. 角色必须基于自己的目标、能力、信息、恐惧、利益和关系行动；可以犯错、改变、失控或背叛，但必须有因果，不得为了给玩家送线索而降智。\n` +
 `3. 不替玩家决定关键行动、台词或内心；只描写世界和其他角色对行动的反应。\n` +
@@ -873,6 +1024,7 @@ const EchoesApp: React.FC = () => {
 `8. 正文优先使用纯文本或 Markdown；只有资料、日志、表格、地图、公式、终端和世界内文档才使用其他格式，并且必须符合世界观。\n` +
 `9. 严格遵守上方【作者对你的直接指令】里的写作方式、语气、视角和字数要求；这是作者对创作层面的要求，优先级高于你自己的默认习惯，但不能因此违反硬事实或替玩家做决定。\n` +
 `10. 输出停在玩家可以继续行动的位置。${opening ? '这是开场，要建立舞台、人物和初始悬念，不要写死结局。' : ''}\n\n` +
+`【输出协议】\n${buildEchoesTurnOutputInstruction()}\n` +
 `【输出】只输出合法 JSON，不要代码围栏：\n` +
 `{\n` +
 `  "chapter": "当前章节名",\n` +
@@ -882,6 +1034,10 @@ const EchoesApp: React.FC = () => {
 `  "newKnownFacts": ["玩家在本轮合理知道的事实"],\n` +
 `  "hardFactsToLock": ["只有确实已经确定、未来不能随便改写的事实"],\n` +
 `  "continuitySummary": "可选；用简短小说式摘要承接长篇剧情，不得覆盖硬事实",\n` +
+`  "mechanicPatches": [],\n` +
+`  "choices": [\n` +
+`    { "id": "choice-1", "label": "自然语言选择", "description": "可选补充说明", "disabled": false }\n` +
+`  ],\n` +
 `  "blocks": [\n` +
 `    { "kind": "narrative|dialogue|artifact|state|system", "format": "允许格式之一", "title": "可选", "content": "内容", "collapsible": false }\n` +
 `  ],\n` +
@@ -893,6 +1049,18 @@ const EchoesApp: React.FC = () => {
         if (value && typeof value === 'object' && value.payload && typeof value.payload === 'object') return value.payload;
         if (value && typeof value === 'object' && value.repairedPayload && typeof value.repairedPayload === 'object') return value.repairedPayload;
         return value;
+    };
+
+    const parseTurnPayload = (response: unknown, world: EchoesWorld, fallbackText: string) => {
+        const parsed = parseEchoesTurnOutput(response, {
+            allowedFormats: world.allowedFormats,
+            fallbackText,
+            maxBlocks: 24,
+            maxChoices: 6,
+            maxFacts: 200,
+            maxMechanicPatches: 20,
+        });
+        return parsed.output;
     };
 
     const isCriticalAction = (action: string, payload: any): boolean => {
@@ -935,13 +1103,72 @@ const EchoesApp: React.FC = () => {
 `世界：${world.title}\n世界观：${world.worldSetting}\n硬事实：${world.hardFacts.join('；') || '暂无'}\n玩家已知：${world.knownFacts.join('；') || '暂无'}\n玩家行动：${action}\n` +
 `审查意见：${issues.join('；') || cleanText(review.repairInstructions) || '检查连续性、角色动机和玩家能动性'}\n` +
 `原始 JSON：\n${draftJson}\n\n` +
-`只输出修复后的完整故事 JSON，字段必须保持 chapter、statePatch、directorPatch、continuitySummary、newKnownFacts、hardFactsToLock、blocks、suggestions；不要代码围栏，不要解释。保留有价值的新人物、新线索和新转折，只修真正的问题。`;
+`只输出修复后的完整故事 JSON，字段必须保持 chapter、statePatch、directorPatch、continuitySummary、newKnownFacts、hardFactsToLock、mechanicPatches、blocks、choices、suggestions；不要代码围栏，不要解释。保留有价值的新人物、新线索和新转折，只修真正的问题。`;
             const repairedData = await requestAI(repairPrompt, 6500, world.title);
             const repaired = unwrapPayload(extractJson(extractContent(repairedData) || ''));
             return repaired && (Array.isArray(repaired.blocks) || repaired.narrative || repaired.gm_narrative) ? repaired : draftPayload;
         } catch (error) {
             console.warn('[Echoes] quality review skipped:', error);
             return draftPayload;
+        }
+    };
+
+    
+    const generateWorldFromIdea = async () => {
+        if (!aiIdea.trim() || generatingRef.current) return;
+        generatingRef.current = true;
+        setGenerating(true);
+        addToast('正在推演世界设定...', 'info');
+        try {
+            const prompt = `你是一个世界观设计师。根据玩家的一句话灵感，构建一个适合用来玩沉浸式文字游戏的世界。\n灵感：${aiIdea}\n请输出 JSON：\n{ "title": "世界名称", "world": "200-500字的世界观背景", "identity": "为玩家设计身份", "cast": "主要人物设定" }`;
+            const data = await requestAI(prompt, 2000, 'AI世界构建');
+            const res = extractJson(extractContent(data) || '');
+            if (res && res.title && res.world) {
+                setDraft(prev => ({ ...prev, title: res.title, world: res.world, identity: res.identity || '', cast: res.cast || '' }));
+                addToast('世界观已生成，请审阅修改', 'success');
+                setCreationMethod('manual');
+            } else throw new Error('生成的设定格式不正确');
+        } catch (e: any) { addToast(`生成失败：${e.message}`, 'error'); }
+        finally { generatingRef.current = false; setGenerating(false); }
+    };
+    
+    const handleNovelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setGenerating(true);
+        addToast('正在解析原著文件...', 'info');
+        try {
+            const parsed = await parseEpubNovel(file as any);
+            setParsedNovelFile(parsed);
+            addToast('文件解析成功，正在提取世界观与人物...', 'info');
+            
+            const requester = async (prompt: string, maxTokens?: number) => {
+                const data = await requestAI(prompt, maxTokens, parsed.fileName);
+                return extractContent(data) || '';
+            };
+            const result = await analyzeNovelDocument(parsed, requester, { language: 'zh-CN' });
+            
+            if (result.error) throw new Error(result.error.message);
+            
+            setNovelAnalysis(result.analysis);
+            setDraft(prev => ({ 
+                ...prev, 
+                title: result.analysis.title || parsed.fileName, 
+                world: result.analysis.worldSummary || '',
+                cast: result.analysis.mainCharacters.map(c => `${c.name}: ${c.identity}`).join('\n')
+            }));
+            
+            setCrossoverDraft(createCrossoverConfigDraft({
+                source: { kind: 'uploaded', title: result.analysis.title || parsed.fileName, fileName: parsed.fileName },
+                role: 'replace_character',
+                canonPolicy: 'guided'
+            }));
+            addToast('原著分析完成', 'success');
+        } catch (err: any) {
+            addToast(`导入失败: ${err.message}`, 'error');
+        } finally {
+            setGenerating(false);
+            if (e.target) e.target.value = '';
         }
     };
 
@@ -964,6 +1191,9 @@ const EchoesApp: React.FC = () => {
             mode: draft.mode, qualityMode: draft.qualityMode, allowedFormats: [...DEFAULT_FORMATS], formattingPreference: draft.formatting,
             ui: finalUI,
             initialState: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
+            initialHardFacts: [],
+            initialMechanics: [],
+            mechanics: [],
             initialDirector: normalizeDirector(DEFAULT_DIRECTOR),
             initialContinuitySummary: '',
             state: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
@@ -976,27 +1206,37 @@ const EchoesApp: React.FC = () => {
         try {
             const data = await requestAI(basePrompt(seed, '（开场）', true), 6500, seed.title);
             const raw = extractContent(data) || '';
-            let payload = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
-            payload = await reviewPayload(seed, '（开场）', payload);
+            let payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
+            payloadRaw = await reviewPayload(seed, '（开场）', payloadRaw);
+            const payload = parseTurnPayload(payloadRaw, seed, raw);
             const before = cloneState(seed.state);
             const after = applyStatePatch(before, payload);
             const beforeDirector = cloneDirector(seed.director);
             const afterDirector = applyDirectorPatch(beforeDirector, payload);
+            const hardFactsToLock = filterNovelHardFactsToLock(payload.hardFactsToLock, seed.novelProfile).facts;
+            const afterHardFacts = Array.from(new Set([...seed.initialHardFacts, ...hardFactsToLock])).slice(-200);
+            const patchGate = filterNovelMechanicPatches(payload.mechanicPatches, seed.novelProfile, seed.initialMechanics);
+            const afterMechanics = applyMechanicPatches(seed.initialMechanics, patchGate.patches, now);
             const turn: EchoesTurn = {
-                id: `turn-${now}`, action: '（开场）', blocks: normalizeBlocks(payload, seed.allowedFormats, raw), suggestions: normalizeSuggestions(payload),
-                chapter: cleanText(payload?.chapter) || after.chapter, mood: cleanText(payload?.mood).slice(0, 20) || undefined,
+                id: `turn-${now}`, action: '（开场）', playerAction: '（开场）', blocks: normalizeBlocks(payload, seed.allowedFormats, raw), suggestions: normalizeSuggestions(payload),
+                chapter: cleanText(payload.chapter) || after.chapter, mood: cleanText(payload.mood).slice(0, 20) || undefined,
                 beforeState: before, afterState: after,
                 beforeDirector, afterDirector, beforeContinuitySummary: seed.continuitySummary,
-                afterContinuitySummary: cleanText(payload?.continuitySummary || payload?.recap).slice(0, 4000),
-                beforeKnownFacts: [...seed.knownFacts], beforeHardFacts: [...seed.hardFacts], createdAt: now,
+                afterContinuitySummary: cleanText(payload.continuitySummary).slice(0, 4000),
+                beforeKnownFacts: [...seed.knownFacts], beforeHardFacts: [...seed.initialHardFacts], hardFactsToLock,
+                hardFactsRecorded: true, afterHardFacts, beforeMechanics: seed.initialMechanics,
+                mechanicPatches: patchGate.patches, afterMechanics, createdAt: now,
             };
             const world: EchoesWorld = {
-                ...seed, state: after, director: afterDirector, continuitySummary: cleanText(payload?.continuitySummary || payload?.recap).slice(0, 4000), turns: [turn], initialState: cloneState(seed.state), initialDirector: cloneDirector(seed.director), initialContinuitySummary: '', hardFacts: Array.isArray(payload?.hardFactsToLock) ? payload.hardFactsToLock.map(cleanText).filter(Boolean) : [],
-                knownFacts: Array.isArray(payload?.newKnownFacts) ? payload.newKnownFacts.map(cleanText).filter(Boolean) : [],
+                ...seed, state: after, director: afterDirector, continuitySummary: cleanText(payload.continuitySummary).slice(0, 4000), turns: [turn],
+                initialState: cloneState(seed.state), initialHardFacts: [...seed.initialHardFacts], initialDirector: cloneDirector(seed.director), initialContinuitySummary: '',
+                hardFacts: afterHardFacts, mechanics: afterMechanics,
+                knownFacts: payload.newKnownFacts.map(cleanText).filter(Boolean).slice(-200),
                 updatedAt: Date.now(), lastPlayedAt: Date.now(),
             };
-            await DB.saveEchoesWorld(world);
-            setWorlds(prev => [world, ...prev]); setActiveWorld(world); setView('play'); setFreshTurnId(turn.id);
+            const safeWorld = sanitizeEchoesWorldForStorage(world) as EchoesWorld;
+            await DB.saveEchoesWorld(safeWorld);
+            setWorlds(prev => [safeWorld, ...prev]); setActiveWorld(safeWorld); setView('cover'); setFreshTurnId(turn.id);
             setDraft({ title: '', world: '', identity: '', cast: '', mode: 'interactive', qualityMode: 'maximum', formatting: 'adaptive' });
             setDraftWritingGuide({ ...DEFAULT_WRITING_GUIDE });
             setDraftProtocol({ ...DEFAULT_PROTOCOL });
@@ -1008,7 +1248,7 @@ const EchoesApp: React.FC = () => {
 
     const persistWorld = async (world: EchoesWorld) => {
         const now = Date.now();
-        const updated: EchoesWorld = { ...world, updatedAt: now, lastPlayedAt: now };
+        const updated = sanitizeEchoesWorldForStorage({ ...world, updatedAt: now, lastPlayedAt: now }) as EchoesWorld;
         await DB.saveEchoesWorld(updated);
         // 只在内容真正变化时才更新 activeWorld state，避免每次保存都触发全局重渲染、导致闪烁。
         setActiveWorld(prev => {
@@ -1025,33 +1265,90 @@ const EchoesApp: React.FC = () => {
         return updated;
     };
 
-    const playAction = async (rawAction: string, baseWorld = activeWorld) => {
+    const playAction = async (
+        rawAction: string,
+        baseWorld = activeWorld,
+        rawMechanicAction?: unknown,
+        naturalProgress = false,
+    ) => {
         const action = rawAction.trim();
-        if (!baseWorld || !action || generating || generatingRef.current) return;
+        if (!baseWorld || (!action && rawMechanicAction === undefined && !naturalProgress) || generating || generatingRef.current) return;
+        const preparation = rawMechanicAction === undefined
+            ? undefined
+            : prepareEchoesMechanicAction(baseWorld.mechanics, rawMechanicAction, { profile: baseWorld.novelProfile, now: Date.now() });
+        if (preparation && !preparation.accepted) {
+            addToast(`组件动作未执行：${preparation.reason || '动作当前不可用'}`, 'error');
+            return;
+        }
+        const narrativeAction = action || preparation?.actionText || (naturalProgress ? '（顺其发展）' : '执行组件动作');
+        const promptWorld = preparation
+            ? { ...baseWorld, mechanics: preparation.mechanics }
+            : baseWorld;
         generatingRef.current = true;
-        setInput(''); setGenerating(true);
+        setInput('');
+        setSuggestionsExpanded(false);
+        setShowNaturalProgressHint(false);
+        // Preserve a reader's historical scroll anchor while a new turn is
+        // generated. The scroll effect only follows when they were already
+        // near the latest content.
+        setGenerating(true);
         try {
-            const data = await requestAI(basePrompt(baseWorld, action), 6500, baseWorld.title);
+            const data = await requestAI(basePrompt(promptWorld, narrativeAction, false, preparation?.actionText || ''), 6500, baseWorld.title);
             const raw = extractContent(data) || '';
-            let payload = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
-            payload = await reviewPayload(baseWorld, action, payload);
+            let payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
+            payloadRaw = await reviewPayload(promptWorld, narrativeAction, payloadRaw);
+            const payload = parseTurnPayload(payloadRaw, promptWorld, raw);
+            const now = Date.now();
             const before = cloneState(baseWorld.state);
             const after = applyStatePatch(before, payload);
             const beforeDirector = cloneDirector(baseWorld.director);
             const afterDirector = applyDirectorPatch(beforeDirector, payload);
+            const localBaseMechanics = preparation?.mechanics || baseWorld.mechanics;
+            const patchGate = filterNovelMechanicPatches(payload.mechanicPatches, baseWorld.novelProfile, localBaseMechanics);
+            const afterAiMechanics = applyMechanicPatches(localBaseMechanics, patchGate.patches, now);
+            const finalMechanics = preparation?.localPatches?.length
+                ? applyMechanicPatches(afterAiMechanics, preparation.localPatches, now)
+                : afterAiMechanics;
+            const locked = filterNovelHardFactsToLock(payload.hardFactsToLock, baseWorld.novelProfile).facts;
+            const nextHardFacts = Array.from(new Set([...baseWorld.hardFacts, ...locked])).slice(-200);
+            const known = payload.newKnownFacts.map(cleanText).filter(Boolean).slice(-200);
+            const nextSummary = cleanText(payload.continuitySummary || baseWorld.continuitySummary).slice(0, 4000);
             const turn: EchoesTurn = {
-                id: `turn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, action,
-                blocks: normalizeBlocks(payload, baseWorld.allowedFormats, raw), suggestions: normalizeSuggestions(payload),
-                chapter: cleanText(payload?.chapter) || after.chapter, mood: cleanText(payload?.mood).slice(0, 20) || undefined,
+                id: `turn-${now}-${Math.random().toString(36).slice(2, 7)}`,
+                action: narrativeAction,
+                playerAction: action || undefined,
+                blocks: normalizeBlocks(payload, baseWorld.allowedFormats, raw),
+                suggestions: normalizeSuggestions(payload),
+                choices: Array.isArray(payload.choices) ? payload.choices : [],
+                endingTriggered: payload.endingTriggered,
+                chapter: cleanText(payload.chapter) || after.chapter,
+                mood: cleanText(payload.mood).slice(0, 20) || undefined,
                 beforeState: before, afterState: after,
-                beforeDirector, afterDirector, beforeContinuitySummary: baseWorld.continuitySummary,
-                afterContinuitySummary: cleanText(payload?.continuitySummary || payload?.recap || baseWorld.continuitySummary).slice(0, 4000),
-                beforeKnownFacts: [...baseWorld.knownFacts], beforeHardFacts: [...baseWorld.hardFacts], createdAt: Date.now(),
+                beforeDirector, afterDirector,
+                beforeContinuitySummary: baseWorld.continuitySummary,
+                afterContinuitySummary: nextSummary,
+                beforeKnownFacts: [...baseWorld.knownFacts],
+                beforeHardFacts: [...baseWorld.hardFacts],
+                hardFactsToLock: locked,
+                hardFactsRecorded: true,
+                afterHardFacts: nextHardFacts,
+                beforeMechanics: [...baseWorld.mechanics],
+                mechanicPatches: patchGate.patches,
+                mechanicAction: preparation?.request,
+                afterMechanics: finalMechanics,
+                createdAt: now,
             };
-            const known = Array.isArray(payload?.newKnownFacts) ? payload.newKnownFacts.map(cleanText).filter(Boolean) : [];
-            const locked = Array.isArray(payload?.hardFactsToLock) ? payload.hardFactsToLock.map(cleanText).filter(Boolean) : [];
-            const nextSummary = cleanText(payload?.continuitySummary || payload?.recap || baseWorld.continuitySummary).slice(0, 4000);
-            await persistWorld({ ...baseWorld, state: after, director: afterDirector, continuitySummary: nextSummary, turns: [...baseWorld.turns, turn], hardFacts: Array.from(new Set([...baseWorld.hardFacts, ...locked])).slice(-200), knownFacts: Array.from(new Set([...baseWorld.knownFacts, ...known])).slice(-200) });
+            const safeWorld = sanitizeEchoesWorldForStorage({
+                ...baseWorld,
+                state: after,
+                director: afterDirector,
+                continuitySummary: nextSummary,
+                turns: [...baseWorld.turns, turn],
+                hardFacts: nextHardFacts,
+                knownFacts: Array.from(new Set([...baseWorld.knownFacts, ...known])).slice(-200),
+                mechanics: finalMechanics,
+            }) as EchoesWorld;
+            await persistWorld(safeWorld);
             setFreshTurnId(turn.id);
         } catch (error: any) { addToast(`这一轮生成失败：${error?.message || '请稍后重试'}`, 'error'); }
         finally { generatingRef.current = false; setGenerating(false); }
@@ -1069,8 +1366,31 @@ const EchoesApp: React.FC = () => {
             continuitySummary: last.beforeContinuitySummary ?? activeWorld.initialContinuitySummary ?? '',
             knownFacts: last.beforeKnownFacts ? [...last.beforeKnownFacts] : activeWorld.knownFacts.slice(0, Math.max(0, activeWorld.knownFacts.length - 1)),
             hardFacts: last.beforeHardFacts ? [...last.beforeHardFacts] : activeWorld.hardFacts,
+            mechanics: last.beforeMechanics ? sanitizeNovelMechanicSnapshot(last.beforeMechanics, activeWorld.novelProfile, activeWorld.initialMechanics) : activeWorld.initialMechanics,
         });
         addToast('已回到上一回合', 'info');
+    };
+
+    const restartWorld = async () => {
+        if (!activeWorld || generating || generatingRef.current) return;
+        const reset: EchoesWorld = {
+            ...activeWorld,
+            turns: [],
+            state: cloneState(activeWorld.initialState),
+            director: cloneDirector(activeWorld.initialDirector),
+            continuitySummary: activeWorld.initialContinuitySummary || '',
+            hardFacts: [...activeWorld.initialHardFacts],
+            knownFacts: [],
+            mechanics: sanitizeNovelMechanicSnapshot(activeWorld.initialMechanics, activeWorld.novelProfile, [], Date.now()),
+            updatedAt: Date.now(),
+            lastPlayedAt: Date.now(),
+        };
+        setConfirmRestart(false);
+        await persistWorld(reset);
+        setActiveWorld(reset);
+        setFreshTurnId(null);
+        setView('cover');
+        addToast('已回到世界序幕；原存档仍可通过回退保留的回合查看', 'info');
     };
 
     const rerollLast = async () => {
@@ -1084,9 +1404,87 @@ const EchoesApp: React.FC = () => {
             continuitySummary: last.beforeContinuitySummary ?? activeWorld.initialContinuitySummary ?? '',
             knownFacts: last.beforeKnownFacts ? [...last.beforeKnownFacts] : activeWorld.knownFacts,
             hardFacts: last.beforeHardFacts ? [...last.beforeHardFacts] : activeWorld.hardFacts,
+            mechanics: last.beforeMechanics ? sanitizeNovelMechanicSnapshot(last.beforeMechanics, activeWorld.novelProfile, activeWorld.initialMechanics) : activeWorld.initialMechanics,
         };
         await persistWorld(base);
-        await playAction(last.action, base);
+        const wasNaturalProgress = last.action === '（顺其发展）' && !last.playerAction && !last.mechanicAction;
+        await playAction(last.playerAction || '', base, last.mechanicAction, wasNaturalProgress);
+    };
+
+    const handleMechanicAction = (request: EchoesMechanicActionRequest) => {
+        if (generating || generatingRef.current) return;
+        void playAction('', activeWorld, request);
+    };
+
+    const runNaturalProgress = () => {
+        if (generating || generatingRef.current) return;
+        if (!naturalProgressConfirmed) {
+            setShowNaturalProgressHint(true);
+            return;
+        }
+        void playAction('', activeWorld, undefined, true);
+    };
+
+    const acceptNaturalProgress = () => {
+        try { window.localStorage.setItem('echoes-natural-progress-confirmed', '1'); } catch { /* storage disabled */ }
+        setNaturalProgressConfirmed(true);
+        setShowNaturalProgressHint(false);
+        void playAction('', activeWorld, undefined, true);
+    };
+
+    const persistStoryScroll = (element: HTMLDivElement, top: number) => {
+        scrollPosRef.current = top;
+        const nearLatest = element.scrollHeight - top - element.clientHeight < 96;
+        const atTop = top < 72;
+        setIsNearLatest(previous => previous === nearLatest ? previous : nearLatest);
+        setIsAtStoryTop(previous => previous === atTop ? previous : atTop);
+        if (activeWorld) {
+            try { window.localStorage.setItem(`echoes-scroll:${activeWorld.id}`, String(top)); } catch { /* storage disabled */ }
+        }
+    };
+
+    const scrollToLatest = () => {
+        const element = storyContainerRef.current;
+        if (!element) return;
+        const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
+        element.scrollTo({ top: maxTop, behavior: 'smooth' });
+        persistStoryScroll(element, maxTop);
+    };
+
+    const scrollToTurn = (direction: 'previous' | 'next') => {
+        const element = storyContainerRef.current;
+        if (!element || activeTab !== 'story') return;
+        const nodes = Array.from(element.querySelectorAll<HTMLElement>('[data-echoes-turn]'));
+        if (!nodes.length) return;
+        const containerTop = element.getBoundingClientRect().top;
+        let currentIndex = 0;
+        nodes.forEach((node, index) => {
+            const nodeTop = node.getBoundingClientRect().top - containerTop + element.scrollTop;
+            if (nodeTop <= element.scrollTop + 72) currentIndex = index;
+        });
+        const targetIndex = direction === 'previous'
+            ? Math.max(0, currentIndex - 1)
+            : Math.min(nodes.length - 1, currentIndex + 1);
+        nodes[targetIndex].scrollIntoView({ behavior: 'smooth', block: 'start' });
+        window.requestAnimationFrame(() => {
+            if (storyContainerRef.current) persistStoryScroll(storyContainerRef.current, storyContainerRef.current.scrollTop);
+        });
+    };
+
+    const scrollToTurnId = (turnId: string) => {
+        setActiveTab('story');
+        window.setTimeout(() => {
+            const node = storyContainerRef.current?.querySelector<HTMLElement>(`[data-echoes-turn="${turnId}"]`);
+            node?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 40);
+    };
+
+    const scrollToStoryEdge = (edge: 'top' | 'bottom') => {
+        const element = storyContainerRef.current;
+        if (!element || activeTab !== 'story') return;
+        const top = edge === 'top' ? 0 : Math.max(0, element.scrollHeight - element.clientHeight);
+        element.scrollTo({ top, behavior: 'smooth' });
+        persistStoryScroll(element, top);
     };
 
     const deleteWorld = async (id: string) => {
@@ -1151,7 +1549,19 @@ const EchoesApp: React.FC = () => {
         await persistWorld({ ...activeWorld, allowedFormats: next });
     };
 
-    const openWorld = (world: EchoesWorld) => { const normalized = normalizeWorld(world); setActiveWorld(normalized); setView('play'); setSourceVisible(false); };
+    const openWorld = (world: EchoesWorld) => {
+        const normalized = normalizeWorld(world);
+        scrollRestoredWorldRef.current = null;
+        setIsNearLatest(true);
+        setIsAtStoryTop(true);
+        setSuggestionsExpanded(false);
+        setShowNaturalProgressHint(false);
+        setActiveWorld(normalized);
+        setView('cover');
+        setActiveTab('story');
+        setShowQuickTools(false);
+        setSourceVisible(false);
+    };
 
     // 最后一层运行时保险：即使旧构建、异常导入或外部状态绕过 normalizeWorld，
     // 主题也必须回退到 paper，绝不能把 undefined 传给 palette.panel。
@@ -1194,10 +1604,10 @@ const EchoesApp: React.FC = () => {
     </div>;
 
     const CREATE_STEPS = [
-        { key: 1, label: '世界观', icon: BookOpenText, accent: '#a78bfa' },
-        { key: 2, label: '身份与角色', icon: UsersThree, accent: '#f472b6' },
-        { key: 3, label: '玩法与写作', icon: Sparkle, accent: '#fbbf24' },
-        { key: 4, label: '外观', icon: Palette, accent: '#34d399' },
+        { key: 1, label: '世界基底与原著', icon: BookOpenText, accent: '#a78bfa' },
+        { key: 2, label: '穿书身份与原著配置', icon: UsersThree, accent: '#f472b6' },
+        { key: 3, label: '游戏模式与写作指令', icon: Sparkle, accent: '#fbbf24' },
+        { key: 4, label: '独立世界主题', icon: Palette, accent: '#34d399' },
     ] as const;
 
     const renderCreate = () => {
@@ -1226,8 +1636,50 @@ const EchoesApp: React.FC = () => {
                     </div>
 
                     {createStep === 1 && <div className="animate-fade-in">
-                        <StepField label="世界名称"><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="例如：长安旧雪" className={inputCls} /></StepField>
-                        <StepField label="世界观 / 你想玩的故事" hint={`${draft.world.length} 字`}><textarea value={draft.world} onChange={e => setDraft({ ...draft, world: e.target.value })} rows={7} placeholder="例如：架空古代探案，没有超自然力量，节奏慢热，重视人物关系和逻辑推理……越具体，AI 越能贴合你的期待。" className={`${inputCls} resize-y leading-[1.7]`} /></StepField>
+                        <div className="mb-6 flex rounded-xl border border-white/10 bg-black/20 p-1">
+                            <button onClick={() => setCreationMethod('manual')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'manual' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✍️ 手动</button>
+                            <button onClick={() => setCreationMethod('ai')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'ai' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✨ AI 推演</button>
+                            <button onClick={() => setCreationMethod('novel')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'novel' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>📖 穿书导入</button>
+                        </div>
+
+                        {creationMethod === 'ai' && <div className="mb-5 animate-fade-in rounded-2xl border border-purple-500/30 bg-purple-500/5 p-4">
+                            <p className="mb-3 text-[12px] text-white/70">输入一句脑洞，AI 将自动为你补全庞大的世界观、你的身份与登场人物。</p>
+                            <textarea value={aiIdea} onChange={e => setAiIdea(e.target.value)} rows={3} placeholder="例如：赛博朋克背景下的修仙门派，玩家是一个被废掉义体的外门弟子..." className={`${inputCls} mb-3 border-purple-500/20`} />
+                            <button onClick={generateWorldFromIdea} disabled={generating} className="w-full rounded-xl bg-purple-500/20 py-3 text-[12px] font-bold text-purple-200 hover:bg-purple-500/30 disabled:opacity-50">{generating ? '正在推演...' : '开始推演'}</button>
+                        </div>}
+
+                        {creationMethod === 'novel' && <div className="mb-5 animate-fade-in rounded-2xl border border-blue-500/30 bg-blue-500/5 p-4 text-center">
+                            <BookOpenText size={32} className="mx-auto mb-2 text-blue-300/50" />
+                            <h3 className="mb-1 text-sm font-bold text-blue-200">穿书 / 原著世界导入</h3>
+                            <p className="mb-4 text-[11px] leading-relaxed text-white/50">支持解析 EPUB 小说文件，自动提取世界背景、角色库与切入点；可选择魂穿替换主角，或作为旁观者介入剧情。</p>
+                            
+                            {!novelAnalysis ? (
+                                <label className="inline-block cursor-pointer rounded-xl bg-blue-500/20 px-5 py-2.5 text-[12px] font-bold text-blue-200 hover:bg-blue-500/30">
+                                    <input type="file" accept=".epub,.txt" className="hidden" onChange={handleNovelImport} disabled={generating} />
+                                    {generating ? '解析与提取中...' : '选择本地小说文件'}
+                                </label>
+                            ) : (
+                                <div className="text-left text-[11px] text-white/80">
+                                    <div className="mb-2 text-[13px] font-bold text-blue-300">✅ 提取成功: {novelAnalysis.title}</div>
+                                    <p className="mb-3 opacity-70 line-clamp-3">{novelAnalysis.worldSummary}</p>
+                                    
+                                    <div className="space-y-3 border-t border-white/10 pt-3">
+                                        <StepField label="穿越身份"><select value={crossoverDraft.role} onChange={e => setCrossoverDraft({ ...crossoverDraft, role: e.target.value as any })} className="w-full rounded-lg border border-white/10 bg-black/20 p-2"><option value="replace_character">魂穿/替换原角色</option><option value="original_character">原创角色降临</option><option value="observer">隐形旁观者</option></select></StepField>
+                                        
+                                        {crossoverDraft.role === 'replace_character' && <StepField label="选择要替换的角色"><select value={crossoverDraft.replacementCharacter || ''} onChange={e => setCrossoverDraft({ ...crossoverDraft, replacementCharacter: e.target.value })} className="w-full rounded-lg border border-white/10 bg-black/20 p-2"><option value="">请选择...</option>{novelAnalysis.mainCharacters.map((c: any) => <option key={c.name} value={c.name}>{c.name} ({c.identity})</option>)}</select></StepField>}
+                                        
+                                        <StepField label="原著收束策略"><select value={crossoverDraft.canonPolicy} onChange={e => setCrossoverDraft({ ...crossoverDraft, canonPolicy: e.target.value as any })} className="w-full rounded-lg border border-white/10 bg-black/20 p-2"><option value="guided">剧情修正（世界会尝试修正你的偏差）</option><option value="free">自由发展（蝴蝶效应彻底发散）</option><option value="fixed">强制收束（无论做什么都会走向原定命运）</option></select></StepField>
+                                        
+                                        <button onClick={() => setCreationMethod('manual')} className="mt-2 w-full rounded-lg bg-white/10 py-2 font-bold hover:bg-white/20">确认配置并进入人工微调</button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>}
+
+                        {creationMethod === 'manual' && <>
+                            <StepField label="世界名称"><input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="例如：长安旧雪" className={inputCls} /></StepField>
+                            <StepField label="世界观 / 你想玩的故事" hint={`${draft.world.length} 字`}><textarea value={draft.world} onChange={e => setDraft({ ...draft, world: e.target.value })} rows={7} placeholder="例如：架空古代探案，没有超自然力量，节奏慢热，重视人物关系和逻辑推理……越具体，AI 越能贴合你的期待。" className={`${inputCls} resize-y leading-[1.7]`} /></StepField>
+                        </>}
                     </div>}
 
                     {createStep === 2 && <div className="animate-fade-in">
@@ -1328,8 +1780,18 @@ const EchoesApp: React.FC = () => {
         </div>;
     };
 
-    const renderSettings = () => activeWorld && <EchoesSheet open={showSettings} onClose={() => setShowSettings(false)} title="自定义 Echoes" icon={<GearSix size={17} />} palette={palette}>
-        <div className="space-y-4">{renderExperienceSettings()}
+    const renderSettings = () => activeWorld && <EchoesSheet open={showSettings} onClose={() => setShowSettings(false)} title="世界设置" icon={<GearSix size={17} />} palette={palette}>
+        <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+                {([
+                    ['appearance', '外观与阅读', Palette],
+                    ['experience', '剧情与生成', Sparkle],
+                    ['writing', '写作与叙事', PencilSimple],
+                    ['data', 'API、存档与数据', Archive],
+                ] as const).map(([key, label, Icon]) => <button key={key} type="button" onClick={() => setSettingsSection(key)} className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-[11px] transition" style={{ borderColor: settingsSection === key ? ui.accent : palette.border, background: settingsSection === key ? `${ui.accent}12` : `${palette.panel}70`, color: settingsSection === key ? ui.accent : palette.text }}><Icon size={15} /><span className="font-semibold">{label}</span></button>)}
+            </div>
+            {settingsSection === 'experience' && <div className="space-y-4">{renderExperienceSettings()}</div>}
+            {settingsSection === 'appearance' && <div className="space-y-4">
             <div><span className="mb-2 block font-bold opacity-70">布局</span><div className="grid grid-cols-2 gap-2">{(Object.keys(LAYOUT_META) as EchoesLayout[]).map(layout => <button key={layout} onClick={() => void updateUI({ layout })} className={`rounded-xl border px-3 py-2 text-left ${ui.layout === layout ? 'ring-2' : ''}`} style={{ borderColor: ui.layout === layout ? ui.accent : palette.border }}>{LAYOUT_META[layout]}</button>)}</div></div>
             <div><span className="mb-2 block font-bold opacity-70">主题</span><div className="grid grid-cols-5 gap-2">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => void updateUI({ theme, accent: ACCENT_PRESETS[theme][0] })} className={`h-8 rounded-lg border ${ui.theme === theme ? 'ring-2' : ''}`} style={{ background: THEME_META[theme].bg, borderColor: ui.theme === theme ? ui.accent : palette.border }} aria-label={theme} />)}</div></div>
             <div><span className="mb-2 block font-bold opacity-70">强调色</span><div className="flex flex-wrap gap-2">{ACCENT_PRESETS[ui.theme].map(color => <button key={color} onClick={() => void updateUI({ accent: color })} className="h-8 w-8 rounded-full border-2" style={{ background: color, borderColor: ui.accent === color ? palette.text : 'transparent', boxShadow: ui.accent === color ? `0 0 0 2px ${color}` : 'none' }} aria-label={color} />)}<input type="color" value={ui.accent} onChange={e => void updateUI({ accent: e.target.value })} className="h-8 w-8 rounded-full border-0 bg-transparent" title="自定义颜色" /></div></div>
@@ -1352,6 +1814,57 @@ const EchoesApp: React.FC = () => {
                     <button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.onchange = async (e: any) => { try { const file = e.target?.files?.[0]; if (!file) return; const text = await file.text(); const imported = JSON.parse(text); await updateUI(imported); addToast('UI 配置已导入', 'success'); } catch { addToast('导入失败，请检查文件格式', 'error'); } }; input.click(); }} className="flex-1 rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导入 UI 配置</button>
                 </div>
             </div>
+            </div>}
+            {settingsSection === 'writing' && <div className="space-y-4">
+                <p className="text-[10.5px] leading-relaxed opacity-50">写作指导是你对 AI 写作本体的直接指令，角色感知不到；改动只影响下一轮开始生效。</p>
+                <div className="space-y-2.5">
+                    <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">写作方式</span><input defaultValue={activeWorld.writingGuide.style} onBlur={e => void updateWritingGuide({ style: e.target.value })} placeholder="例如：写实细腻、意识流……" className="w-full rounded-xl border bg-transparent px-3 py-2 text-[12px] outline-none" style={{ borderColor: palette.border }} /></label>
+                    <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">语气/氛围</span><input defaultValue={activeWorld.writingGuide.tone} onBlur={e => void updateWritingGuide({ tone: e.target.value })} placeholder="例如：压抑悬疑、轻松温馨……" className="w-full rounded-xl border bg-transparent px-3 py-2 text-[12px] outline-none" style={{ borderColor: palette.border }} /></label>
+                    <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">视角/人称</span><input defaultValue={activeWorld.writingGuide.perspective} onBlur={e => void updateWritingGuide({ perspective: e.target.value })} placeholder="例如：第二人称……" className="w-full rounded-xl border bg-transparent px-3 py-2 text-[12px] outline-none" style={{ borderColor: palette.border }} /></label>
+                    <div className="grid grid-cols-3 gap-2">
+                        <input type="number" min={0} defaultValue={activeWorld.writingGuide.minWords || ''} onBlur={e => void updateWritingGuide({ minWords: Number(e.target.value) || 0 })} placeholder="字数下限" className="w-full rounded-xl border bg-transparent px-2 py-2 text-[11px] outline-none" style={{ borderColor: palette.border }} />
+                        <input type="number" min={0} defaultValue={activeWorld.writingGuide.maxWords || ''} onBlur={e => void updateWritingGuide({ maxWords: Number(e.target.value) || 0 })} placeholder="字数上限" className="w-full rounded-xl border bg-transparent px-2 py-2 text-[11px] outline-none" style={{ borderColor: palette.border }} />
+                        <input type="number" min={1} max={40} defaultValue={activeWorld.writingGuide.contextRounds} onBlur={e => void updateWritingGuide({ contextRounds: Number(e.target.value) || DEFAULT_WRITING_GUIDE.contextRounds })} placeholder="参考轮数" className="w-full rounded-xl border bg-transparent px-2 py-2 text-[11px] outline-none" style={{ borderColor: palette.border }} />
+                    </div>
+                    <label className="block"><span className="mb-1 block text-[10px] font-semibold opacity-60">自由指令（直接对 AI 说）</span><textarea defaultValue={activeWorld.writingGuide.authorInstructions} onBlur={e => void updateWritingGuide({ authorInstructions: e.target.value })} rows={4} placeholder="例如：不要倒叙开场、节奏放慢……" className="w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-[12px] leading-relaxed outline-none" style={{ borderColor: palette.border }} /></label>
+                </div>
+                <div className="border-t pt-4" style={{ borderColor: palette.border }}>
+                    <div className="mb-1 flex items-center justify-between"><span className="text-[11px] font-bold opacity-75">写作协议</span><label className="flex items-center gap-1.5 text-[10px] opacity-60"><input type="checkbox" checked={activeWorld.protocol.enabled} onChange={e => void updateProtocol({ enabled: e.target.checked })} />总开关</label></div>
+                    <p className="mb-2.5 text-[10px] leading-relaxed opacity-45">连续性、能动性和角色自主性等底层规则；关闭总开关时只保留基础安全约束。</p>
+                    <div className="space-y-1.5" style={{ opacity: activeWorld.protocol.enabled ? 1 : .4 }}>
+                        {([
+                            ['continuityLedger', '连续性账本'], ['playerAgency', '玩家能动性'], ['characterAutonomy', '角色自主性'],
+                            ['sensoryWriting', '感官写作'], ['meaningfulProgress', '有效推进'], ['sceneObservation', '场景观测'],
+                        ] as const).map(([key, label]) => <label key={key} className="flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-[11px]" style={{ borderColor: palette.border }}>{label}<input type="checkbox" disabled={!activeWorld.protocol.enabled} checked={activeWorld.protocol[key]} onChange={e => void updateProtocol({ [key]: e.target.checked })} /></label>)}
+                    </div>
+                    <textarea defaultValue={activeWorld.protocol.customInstructions} onBlur={e => void updateProtocol({ customInstructions: e.target.value })} rows={2} placeholder="协议补充指令（可选）" className="mt-2 w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-[11px] leading-relaxed outline-none" style={{ borderColor: palette.border }} />
+                </div>
+            </div>}
+            {settingsSection === 'data' && <div className="space-y-4">
+                <div>
+                    <span className="mb-2 block font-bold opacity-70">剧情质量</span>
+                    <div className="grid grid-cols-3 gap-2">{(Object.keys(QUALITY_META) as EchoesQualityMode[]).map(q => <button key={q} onClick={() => void updateQuality(q)} className={`rounded-xl border px-2 py-2 text-[11px] ${activeWorld.qualityMode === q ? 'ring-2' : ''}`} style={{ borderColor: activeWorld.qualityMode === q ? ui.accent : palette.border }}>{QUALITY_META[q].label}</button>)}</div>
+                </div>
+                <div className="border-t pt-4" style={{ borderColor: palette.border }}>
+                    <span className="mb-2 block font-bold opacity-70">Echoes API</span>
+                    <p className="mb-2 text-[10px] leading-relaxed opacity-50">独立于聊天默认 API；未配置时回退使用 SullyOS 聊天默认模型。</p>
+                    <button type="button" onClick={() => setShowApiSettings(true)} className="w-full rounded-lg border px-3 py-2 text-left text-[11px]" style={{ borderColor: palette.border }}>打开 API 与模型设置</button>
+                </div>
+                <div className="border-t pt-4" style={{ borderColor: palette.border }}>
+                    <span className="mb-2 block font-bold opacity-70">存档与数据</span>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => { try { const blob = new Blob([JSON.stringify(activeWorld, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${activeWorld.title || 'echoes-world'}-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url); addToast('世界已导出', 'success'); } catch { addToast('导出失败', 'error'); } }} className="rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导出当前世界</button>
+                        <button onClick={() => { const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'; input.onchange = async (e: any) => { try { const file = e.target?.files?.[0]; if (!file) return; const text = await file.text(); const imported = JSON.parse(text); const normalized = normalizeWorld({ ...imported, id: `echoes-${Date.now()}` }); await DB.saveEchoesWorld(normalized); setWorlds(prev => [normalized, ...prev]); addToast('世界已作为新副本导入', 'success'); } catch { addToast('导入失败，请检查文件格式', 'error'); } }; input.click(); }} className="rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5" style={{ borderColor: palette.border }}>导入世界（新副本）</button>
+                    </div>
+                    <button onClick={() => setConfirmRestart(true)} disabled={generating} className="mt-2 w-full rounded-lg border px-2 py-1.5 text-[10px] hover:bg-black/5 disabled:opacity-40" style={{ borderColor: palette.border }}>从头开始（保留存档，回到序幕）</button>
+                    <button onClick={() => setConfirmDelete(activeWorld.id)} className="mt-2 w-full rounded-lg border px-2 py-1.5 text-[10px] text-red-500 hover:bg-red-500/10" style={{ borderColor: 'rgba(239,68,68,.35)' }}>删除这个世界</button>
+                </div>
+                <div className="border-t pt-4" style={{ borderColor: palette.border }}>
+                    <span className="mb-2 block font-bold opacity-70">高级诊断</span>
+                    <p className="mb-2 text-[10px] leading-relaxed opacity-50">原始状态、导演账本、已知/已锁定事实和写作协议一览；用于排查问题，不用于日常游玩。</p>
+                    <button type="button" onClick={() => { setShowSettings(false); setShowInspector(true); }} className="w-full rounded-lg border px-3 py-2 text-left text-[11px]" style={{ borderColor: palette.border }}>打开世界检查</button>
+                </div>
+            </div>}
         </div>
     </EchoesSheet>;
 
@@ -1394,11 +1907,65 @@ const EchoesApp: React.FC = () => {
         </div>
     </EchoesSheet>;
 
+    const renderCover = () => {
+        if (!activeWorld) return renderLobby();
+        const world = activeWorld;
+        const coverUi = world.ui;
+        const coverPalette = THEME_META[coverUi.theme] || THEME_META.paper;
+        const lastPlayedLabel = world.lastPlayedAt ? new Date(world.lastPlayedAt).toLocaleString('zh-CN', { hour12: false }) : '';
+        const currentChapter = world.turns.length ? (world.turns[world.turns.length - 1].chapter || world.state.chapter) : world.state.chapter;
+        return <div className="echoes-root relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: coverPalette.bg, color: coverPalette.text, paddingTop: 'var(--safe-top)' }}>
+            {coverUi.customCss && <style dangerouslySetInnerHTML={{ __html: coverUi.customCss }} />}
+            <header className="relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ background: `${coverPalette.panel}e6`, borderColor: coverPalette.border }}>
+                <button onClick={() => { setView('lobby'); setActiveWorld(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="返回世界库"><ArrowLeft size={19} /></button>
+                <div className="min-w-0 flex-1"><p className="truncate text-[9px] uppercase tracking-[.18em]" style={{ color: coverUi.accent }}>ECHOES</p><h1 className="truncate text-[14px] font-bold">{world.title}</h1></div>
+                <button onClick={() => { setSettingsSection('appearance'); setShowSettings(true); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="世界设置"><GearSix size={17} /></button>
+            </header>
+            <div className="relative z-[1] min-h-0 flex-1 overflow-y-auto">
+                <div className="mx-auto w-full max-w-md px-5 pb-8 pt-8 text-center">
+                    <p className="text-[10px] uppercase tracking-[.22em]" style={{ color: coverUi.accent }}>{modeLabel(world.mode)}</p>
+                    <h2 className="mt-2 text-2xl font-bold leading-snug">{world.title}</h2>
+                    {world.worldSetting && <p className="mx-auto mt-3 max-w-sm text-xs leading-relaxed" style={{ color: coverPalette.muted }}>{world.worldSetting.slice(0, 140)}{world.worldSetting.length > 140 ? '…' : ''}</p>}
+                    <div className="mx-auto mt-5 flex max-w-xs items-center justify-center gap-3 text-[11px]" style={{ color: coverPalette.muted }}>
+                        <span>{currentChapter || '序章'}</span>
+                        <span className="opacity-40">·</span>
+                        <span>已游玩 {world.turns.length} 回合</span>
+                    </div>
+                    {lastPlayedLabel && <p className="mt-1 text-[10px] opacity-50">上次游玩：{lastPlayedLabel}</p>}
+
+                    <button type="button" onClick={() => { setActiveTab('story'); setView('play'); }} className="mt-7 w-full rounded-2xl px-5 py-3 text-sm font-bold text-white shadow-sm" style={{ background: coverUi.accent }}>
+                        {world.turns.length > 0 ? '继续游戏' : '开始游戏'}
+                    </button>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
+                        <button type="button" onClick={() => { setActiveTab('progress'); setView('play'); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>章节目录</button>
+                        <button type="button" onClick={() => { setActiveTab('archive'); setView('play'); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>世界资料</button>
+                        <button type="button" disabled={!world.turns.length} onClick={() => setConfirmRestart(true)} className="rounded-xl border px-3 py-2.5 disabled:opacity-35" style={{ borderColor: coverPalette.border }}>从头开始</button>
+                        <button type="button" onClick={() => { setView('lobby'); setActiveWorld(null); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>切换世界</button>
+                    </div>
+                </div>
+            </div>
+            {renderSettings()}
+            {confirmRestart && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" onClick={() => setConfirmRestart(false)}>
+                <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl p-5" style={{ background: coverPalette.panel, color: coverPalette.text }}>
+                    <h3 className="mb-2 font-bold">回到世界序幕？</h3>
+                    <p className="mb-4 text-xs leading-relaxed" style={{ color: coverPalette.muted }}>当前进度会被清空，世界回到最初的状态。这个操作不会删除世界本身。</p>
+                    <div className="flex justify-end gap-2 text-xs">
+                        <button type="button" onClick={() => setConfirmRestart(false)} className="rounded-lg px-3 py-1.5 opacity-70 hover:bg-black/5">取消</button>
+                        <button type="button" onClick={() => void restartWorld()} className="rounded-lg px-3 py-1.5 font-semibold text-red-500 hover:bg-red-500/10">确认回到序幕</button>
+                    </div>
+                </div>
+            </div>}
+        </div>;
+    };
+
     if (view === 'lobby') return renderLobby();
     if (view === 'create') return renderCreate();
+    if (view === 'cover') return renderCover();
     if (!activeWorld) return renderLobby();
 
     const lastTurn = activeWorld.turns[activeWorld.turns.length - 1];
+    const sceneState = lastTurn?.afterState || activeWorld.state;
     const castEntries = parseCastEntries(activeWorld.cast, activeWorld.playerIdentity);
     const mood = lastTurn?.mood || activeWorld.director.sceneType || '正在发生';
     const atmosphereStyle = ui.theme === 'terminal'
@@ -1408,74 +1975,177 @@ const EchoesApp: React.FC = () => {
             : `radial-gradient(ellipse at 80% 0%, ${ui.accent}12, transparent 52%)`;
     const tabItems = [
         { key: 'story' as const, label: '故事', icon: BookOpenText },
+        { key: 'progress' as const, label: '进展', icon: ChartLine },
         { key: 'relations' as const, label: ui.labels.people, icon: UsersThree },
-        { key: 'status' as const, label: '状态', icon: Archive },
+        { key: 'archive' as const, label: '资料', icon: Archive },
     ];
+
+    const activeMechanics = (lastTurn?.afterMechanics || activeWorld.mechanics)
+        .filter(mechanic => mechanic.status !== 'hidden' && mechanic.status !== 'disabled')
+        .filter(mechanic => mechanic.kind !== 'unsupported')
+        .slice(0, 12);
+    const sceneType = lastTurn?.afterDirector?.sceneType || activeWorld.director.sceneType;
+    const hasSuggestions = ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating;
 
     const storyView = <>
         <div className="mx-auto w-full max-w-2xl px-4 pb-5 pt-3">
-            {ui.showMoodCard !== false && <MoodCard chapter={lastTurn?.chapter || activeWorld.state.chapter} mood={mood} location={activeWorld.state.location} time={activeWorld.state.time} accent={ui.accent} palette={palette} />}
+            {ui.showMoodCard !== false && <MoodCard chapter={lastTurn?.chapter || sceneState.chapter} mood={mood} sceneType={sceneType} location={sceneState.location} time={sceneState.time} accent={ui.accent} palette={palette} />}
             <div className={activeWorld.ui.layout === 'archive' ? 'space-y-4' : 'space-y-8'}>
                 {activeWorld.turns.map((turn, index) => {
                     const isFresh = turn.id === freshTurnId && ui.typewriterEffect !== false;
-                    return <article key={turn.id} className={`${index === activeWorld.turns.length - 1 ? '' : 'opacity-[.88]'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-2xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: `${palette.panel}cc`, borderColor: palette.border } : undefined}>
+                    return <article key={turn.id} data-echoes-turn={turn.id} className={`${index === activeWorld.turns.length - 1 ? '' : 'opacity-[.88]'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-2xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: `${palette.panel}cc`, borderColor: palette.border } : undefined}>
                         {index > 0 && <div className="mb-3 flex items-center gap-2 text-[10px]" style={{ color: palette.muted }}><span className="h-px flex-1" style={{ background: palette.border }} /><span>{turn.chapter || activeWorld.state.chapter}</span><span className="h-px flex-1" style={{ background: palette.border }} /></div>}
-                        {turn.action !== '（开场）' && <div className="mb-3 rounded-xl px-3 py-2 text-[10px]" style={{ background: `${ui.accent}09`, color: palette.muted }}><span style={{ color: ui.accent }}>你的行动</span><span className="mx-1.5 opacity-40">/</span>{turn.action}</div>}
+                        {turn.action !== '（开场）' && <div className="mb-3 rounded-xl px-3 py-2 text-[10px]" style={{ background: `${ui.accent}09`, color: palette.muted }}><span style={{ color: ui.accent }}>{turn.action === '（顺其发展）' ? '世界推进' : '你的行动'}</span><span className="mx-1.5 opacity-40">/</span>{turn.action}</div>}
                         <TypewriterReveal active={isFresh}>{turn.blocks.map(block => <EchoesContentRenderer key={block.id} block={block} accent={ui.accent} sourceVisible={sourceVisible && ui.showSourceToggle} />)}</TypewriterReveal>
                     </article>;
                 })}
             </div>
+            {activeMechanics.length > 0 && <div className="mt-2">{activeMechanics.map(mechanic => <EchoesMechanicRenderer key={mechanic.id} mechanic={mechanic} accent={ui.accent} palette={palette} busy={generating} onAction={handleMechanicAction} />)}</div>}
             {generating && <div className="my-6 flex items-center justify-center gap-2 rounded-2xl py-3 text-xs" style={{ color: palette.muted, background: `${palette.panel}88` }}><CircleNotch className="animate-spin" size={15} style={{ color: ui.accent }} />世界正在回应……</div>}
         </div>
     </>;
 
-    const relationsView = <div className="mx-auto w-full max-w-2xl px-4 pb-6 pt-4">
-        <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>CAST & THREADS</p><h2 className="mt-1 text-xl font-bold">人物与关系</h2><p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>人物不会被预先锁死；这里记录已经在世界中出现、或由你明确写入的角色。</p></div>
-        {castEntries.length > 0 ? <div className="space-y-2.5">{castEntries.map((entry, index) => <div key={`${entry.name}-${index}`} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold" style={{ color: ui.accent, background: `${ui.accent}18` }}>{entry.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-bold">{entry.name}</h3>{entry.isPlayer && <span className="rounded-full px-2 py-0.5 text-[9px]" style={{ color: ui.accent, background: `${ui.accent}16` }}>玩家</span>}</div><p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed" style={{ color: palette.muted }}>{entry.detail}</p></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed p-8 text-center text-xs opacity-55" style={{ borderColor: palette.border }}>故事会在人物出现后逐渐形成关系。</div>}
-        <div className="mt-6 rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}88` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><GitBranch size={15} />正在牵动的线索</div>{activeWorld.director.activeThreads.length > 0 ? <div className="space-y-2">{activeWorld.director.activeThreads.map((thread, i) => <div key={`${thread}-${i}`} className="flex gap-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: ui.accent }}>0{i + 1}</span><span>{thread}</span></div>)}</div> : <p className="text-xs opacity-50">暂无已记录的活跃线索。</p>}</div>
+    // 章节按 turn.chapter 分组，作为“进展”页的章节目录；不单独占底部导航。
+    const chapterGroups = (() => {
+        const groups: { chapter: string; firstTurnId: string; turnCount: number }[] = [];
+        activeWorld.turns.forEach(turn => {
+            const label = turn.chapter || activeWorld.state.chapter || '序章';
+            const existing = groups.find(g => g.chapter === label);
+            if (existing) existing.turnCount += 1;
+            else groups.push({ chapter: label, firstTurnId: turn.id, turnCount: 1 });
+        });
+        return groups;
+    })();
+
+    const progressView = <div className="mx-auto w-full max-w-2xl space-y-3 px-4 pb-6 pt-4">
+        <div className="mb-2"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>PROGRESS</p><h2 className="mt-1 text-xl font-bold">进展</h2><p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>章节、当前目标、活跃线索和未解决的问题都在这里，不占用底部导航。</p></div>
+        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}>
+            <div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><BookOpenText size={16} />{ui.labels.chapters}</div>
+            <div className="space-y-1.5">{chapterGroups.map((group, i) => <button key={`${group.chapter}-${i}`} type="button" onClick={() => { setActiveTab('story'); scrollToTurnId(group.firstTurnId); }} className="flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-xs" style={{ borderColor: palette.border, background: i === chapterGroups.length - 1 ? `${ui.accent}0c` : 'transparent' }}><span className="font-semibold">{group.chapter}</span><span style={{ color: palette.muted }}>{group.turnCount} 回合{i === chapterGroups.length - 1 ? ' · 阅读中' : ''}</span></button>)}</div>
+        </section>
+        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}>
+            <div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><ChartLine size={16} />当前剧情目标</div>
+            {activeWorld.director.currentGoal && <p className="text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: palette.text }}>当前方向：</span>{activeWorld.director.currentGoal}</p>}
+            {activeWorld.director.chapterGoal && <p className="mt-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: palette.text }}>章节目标：</span>{activeWorld.director.chapterGoal}</p>}
+            <div className="mt-3 flex items-center justify-between text-xs"><span style={{ color: palette.muted }}>{activeWorld.director.sceneType || '场景推进'}</span><span>{activeWorld.director.pressure} / 100</span></div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: `${ui.accent}18` }}><div className="h-full rounded-full transition-all" style={{ width: `${activeWorld.director.pressure}%`, background: ui.accent }} /></div>
+        </section>
+        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}88` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><GitBranch size={15} />正在牵动的线索</div>{activeWorld.director.activeThreads.length > 0 ? <div className="space-y-2">{activeWorld.director.activeThreads.map((thread, i) => <div key={`${thread}-${i}`} className="flex gap-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: ui.accent }}>0{i + 1}</span><span>{thread}</span></div>)}</div> : <p className="text-xs opacity-50">暂无已记录的活跃线索。</p>}</section>
+        {activeWorld.director.unresolvedQuestions.length > 0 && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}88` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><WarningCircle size={15} />未解决的问题</div><div className="space-y-2">{activeWorld.director.unresolvedQuestions.map((q, i) => <div key={`${q}-${i}`} className="flex gap-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: ui.accent }}>?</span><span>{q}</span></div>)}</div></section>}
     </div>;
 
-    const statusView = <div className="mx-auto w-full max-w-2xl space-y-3 px-4 pb-6 pt-4">
-        <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>WORLD STATUS</p><h2 className="mt-1 text-xl font-bold">世界状态</h2><p className="mt-1 text-xs" style={{ color: palette.muted }}>这里是玩家可见的记录；幕后硬事实仍由 Echoes 负责维护。</p></div>
+    const relationsView = <div className="mx-auto w-full max-w-2xl px-4 pb-6 pt-4">
+        <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>CAST</p><h2 className="mt-1 text-xl font-bold">{ui.labels.people}</h2><p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>人物不会被预先锁死；这里记录已经在世界中出现、或由你明确写入的角色。</p></div>
+        {castEntries.length > 0 ? <div className="space-y-2.5">{castEntries.map((entry, index) => <div key={`${entry.name}-${index}`} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold" style={{ color: ui.accent, background: `${ui.accent}18` }}>{entry.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-bold">{entry.name}</h3>{entry.isPlayer && <span className="rounded-full px-2 py-0.5 text-[9px]" style={{ color: ui.accent, background: `${ui.accent}16` }}>玩家</span>}</div><p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed" style={{ color: palette.muted }}>{entry.detail}</p></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed p-8 text-center text-xs opacity-55" style={{ borderColor: palette.border }}>故事会在人物出现后逐渐形成关系。</div>}
+    </div>;
+
+    const archiveView = <div className="mx-auto w-full max-w-2xl space-y-3 px-4 pb-6 pt-4">
+        <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>ARCHIVE</p><h2 className="mt-1 text-xl font-bold">资料</h2><p className="mt-1 text-xs" style={{ color: palette.muted }}>物品、状态和已知线索；幕后硬事实仍由 Echoes 负责维护，不会直接展示。</p></div>
         {ui.showStatus && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><Compass size={16} />当前状态</div><div className="grid grid-cols-2 gap-3 text-xs"><div><span className="text-[10px] opacity-55">{ui.labels.time}</span><p className="mt-1 font-semibold">{activeWorld.state.time}</p></div><div><span className="text-[10px] opacity-55">{ui.labels.location}</span><p className="mt-1 font-semibold">{activeWorld.state.location}</p></div><div><span className="text-[10px] opacity-55">{ui.labels.chapters}</span><p className="mt-1 font-semibold">{activeWorld.state.chapter}</p></div><div><span className="text-[10px] opacity-55">回合</span><p className="mt-1 font-semibold">{activeWorld.turns.length}</p></div>{typeof activeWorld.state.health === 'number' && <div><span className="text-[10px] opacity-55">生命</span><p className="mt-1 font-semibold">{activeWorld.state.health}</p></div>}{typeof activeWorld.state.sanity === 'number' && <div><span className="text-[10px] opacity-55">精神</span><p className="mt-1 font-semibold">{activeWorld.state.sanity}</p></div>}</div></section>}
         {!!activeWorld.state.inventory?.length && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><Archive size={16} />{ui.labels.inventory}</div><div className="flex flex-wrap gap-2">{activeWorld.state.inventory.map((item, i) => <span key={`${item}-${i}`} className="rounded-full px-2.5 py-1 text-[11px]" style={{ background: `${ui.accent}15`, color: ui.accent }}>{item}</span>)}</div></section>}
         {ui.showFacts && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><FileText size={16} />{ui.labels.clues}</div>{activeWorld.knownFacts.length ? <ul className="space-y-2 text-xs leading-relaxed" style={{ color: palette.muted }}>{activeWorld.knownFacts.map((fact, i) => <li key={`${fact}-${i}`} className="flex gap-2"><span style={{ color: ui.accent }}>·</span><span>{fact}</span></li>)}</ul> : <p className="text-xs opacity-50">暂时没有可确认的记录。</p>}</section>}
-        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><ChartLine size={16} />导演节奏</div><div className="mb-2 flex items-center justify-between text-xs"><span style={{ color: palette.muted }}>{activeWorld.director.sceneType || '场景推进'}</span><span>{activeWorld.director.pressure} / 100</span></div><div className="h-1.5 overflow-hidden rounded-full" style={{ background: `${ui.accent}18` }}><div className="h-full rounded-full transition-all" style={{ width: `${activeWorld.director.pressure}%`, background: ui.accent }} /></div>{activeWorld.director.currentGoal && <p className="mt-3 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: palette.text }}>当前方向：</span>{activeWorld.director.currentGoal}</p>}</section>
         <button onClick={() => setShowRawState(v => !v)} className="flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[11px] opacity-65" style={{ borderColor: palette.border }}><span>查看原始状态数据</span><CaretDown size={14} style={{ transform: showRawState ? 'rotate(180deg)' : undefined }} /></button>{showRawState && <pre className="max-h-80 overflow-auto rounded-xl p-3 font-mono text-[10px] leading-relaxed" style={{ background: `${palette.panel}b8` }}>{JSON.stringify(activeWorld.state, null, 2)}</pre>}
     </div>;
 
     const actionDock = activeTab === 'story' && <div className={`sully-echoes-chrome shrink-0 border-t px-3 pb-1.5 pt-1.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[24px] ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f8`, borderColor: palette.border }}>
         <div className="mx-auto max-w-2xl">
-            {ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating && <div className="mb-1.5 space-y-1">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} onClick={() => void playAction(suggestion)} className="flex w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06` }}><span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: `${ui.accent}16`, color: ui.accent }}>{i + 1}</span><span className="leading-snug">{suggestion}</span></button>)}</div>}
-            <div className="flex items-end gap-1.5"><textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void playAction(input); } }} rows={1} disabled={generating} placeholder={activeWorld.mode === 'reader' ? '写下你想做的事，或让世界继续……' : '输入你的行动……'} className="min-h-[36px] flex-1 resize-none rounded-xl border bg-transparent px-2.5 py-2 text-[13px] outline-none placeholder:opacity-35" style={{ borderColor: palette.border }} /><button onClick={() => void playAction(input)} disabled={generating || !input.trim()} className="rounded-xl p-2 text-white shadow-sm disabled:opacity-30" style={{ background: ui.accent }}><Sparkle size={16} weight="fill" /></button></div>
-            <div className="mt-1 flex items-center gap-1 text-[9px]" style={{ color: palette.muted }}><button onClick={() => setSourceVisible(v => !v)} className="rounded-md px-1.5 py-0.5 hover:bg-black/5">{sourceVisible ? '阅读' : '源码'}</button><button onClick={() => void rollbackLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-md px-1.5 py-0.5 hover:bg-black/5 disabled:opacity-30">回退</button><button onClick={() => void rerollLast()} disabled={activeWorld.turns.length <= 1 || generating} className="rounded-md px-1.5 py-0.5 hover:bg-black/5 disabled:opacity-30">重写</button><button onClick={() => { try { navigator.clipboard?.writeText(JSON.stringify(activeWorld, null, 2)); addToast('世界档案已复制', 'success'); } catch { addToast('复制失败', 'error'); } }} className="ml-auto rounded-md px-1.5 py-0.5 hover:bg-black/5">复制档案</button></div>
+            {hasSuggestions && <div className="mb-1.5">
+                <button type="button" onClick={() => setSuggestionsExpanded(value => !value)} aria-expanded={suggestionsExpanded} className="flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06`, color: palette.muted }}>
+                    <span><span style={{ color: ui.accent }}>你可以</span><span className="mx-1 opacity-50">·</span>{suggestionsExpanded ? '选择一种介入方式' : '让这一刻继续展开'}</span>
+                    <CaretDown size={14} style={{ color: ui.accent, transform: suggestionsExpanded ? 'rotate(180deg)' : undefined }} />
+                </button>
+                {suggestionsExpanded && <div className="mt-1 space-y-1">{lastTurn.suggestions.map((suggestion, i) => <button key={`${suggestion}-${i}`} type="button" onClick={() => void playAction(suggestion)} className="flex w-full items-start gap-2 rounded-xl border px-3 py-2.5 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}28`, background: `${ui.accent}04` }}><span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: `${ui.accent}16`, color: ui.accent }}>{i + 1}</span><span className="leading-relaxed">{suggestion}</span></button>)}</div>}
+            </div>}
+            {lastTurn?.endingTriggered && (
+                <div className="mb-3 rounded-2xl border p-5 text-center shadow-lg" style={{ borderColor: ui.accent, background: `${palette.panel}f0` }}>
+                    <div className="text-[10px] font-bold tracking-widest opacity-60 mb-2">{lastTurn.endingTriggered.type} ENDING</div>
+                    <h2 className="text-xl font-bold mb-3" style={{ color: ui.accent }}>{lastTurn.endingTriggered.title}</h2>
+                    {lastTurn.endingTriggered.epilogue && <p className="text-xs leading-relaxed mb-4" style={{ color: palette.muted }}>{lastTurn.endingTriggered.epilogue}</p>}
+                    <div className="flex justify-center gap-2 flex-wrap">
+                        {lastTurn.endingTriggered.achievements?.map((ach: string, i: number) => <span key={i} className="px-2.5 py-1 rounded-full text-[10px] font-semibold border" style={{ borderColor: `${ui.accent}30`, color: ui.accent }}>🏆 {ach}</span>)}
+                    </div>
+                </div>
+            )}
+            
+            {lastTurn?.choices?.length > 0 && !lastTurn.endingTriggered && (
+                <div className="mb-2 space-y-1.5">
+                    {lastTurn.choices.map((choice: any) => (
+                        <button key={choice.id} disabled={choice.disabled || generating} onClick={() => void playAction(choice.label)} className="w-full flex items-center justify-between text-left p-3 rounded-xl border transition disabled:opacity-40" style={{ borderColor: `${ui.accent}30`, background: `${palette.panel}e0` }}>
+                            <div className="flex-1 min-w-0">
+                                <span className="block text-[12.5px] font-bold" style={{ color: ui.accent }}>{choice.label}</span>
+                                {choice.description && <span className="block text-[10px] mt-0.5 leading-relaxed" style={{ color: palette.muted }}>{choice.description}</span>}
+                                {choice.disabledReason && <span className="block text-[9px] mt-1 text-red-500">{choice.disabledReason}</span>}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {showNaturalProgressHint && !lastTurn?.endingTriggered && <div className="mb-1.5 rounded-xl border px-3 py-2.5 text-[10.5px] leading-relaxed" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}08`, color: palette.muted }}>
+                <p>这一次，先不出手，看世界自己走一步？</p>
+                <div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => setShowNaturalProgressHint(false)} className="rounded-lg px-2.5 py-1.5 opacity-65 hover:bg-black/5">再想想</button><button type="button" onClick={acceptNaturalProgress} className="rounded-lg px-2.5 py-1.5 font-semibold" style={{ color: ui.accent, background: `${ui.accent}14` }}>继续</button></div>
+            </div>}
+            
+            {!lastTurn?.endingTriggered && (
+                <div className="flex items-end gap-1.5">
+                    <button type="button" onClick={() => setShowQuickTools(true)} aria-label="本回合工具" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border" style={{ borderColor: palette.border, color: palette.muted }}><Plus size={17} /></button>
+                    <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) void playAction(input); else runNaturalProgress(); } }} rows={1} disabled={generating} placeholder={lastTurn?.choices?.length ? '你也可以自由输入...' : (activeWorld.mode === 'reader' ? '说点什么，或做点什么……' : '输入你的行动……')} className="min-h-[36px] flex-1 resize-none rounded-xl border bg-transparent px-2.5 py-2 text-[13px] outline-none placeholder:opacity-35" style={{ borderColor: palette.border }} /><button type="button" onClick={() => input.trim() ? void playAction(input) : runNaturalProgress()} disabled={generating} aria-label={input.trim() ? '发送行动' : '顺其发展'} className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-xl px-2.5 text-white shadow-sm transition disabled:opacity-30" style={{ background: input.trim() ? ui.accent : `${ui.accent}cc` }}>{input.trim() ? <Sparkle size={16} weight="fill" /> : <ArrowRight size={17} weight="bold" />}</button>
+                </div>
+            )}
         </div>
     </div>;
+
+    const renderQuickTools = () => activeWorld && <EchoesSheet open={showQuickTools} onClose={() => setShowQuickTools(false)} title="本回合工具" icon={<Plus size={17} />} palette={palette}>
+        <div className="space-y-1.5">
+            <button type="button" onClick={() => { setShowQuickTools(false); setActiveTab('progress'); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><BookOpenText size={15} style={{ color: ui.accent }} />章节目录 / 本章进展</button>
+            <button type="button" onClick={() => { setShowQuickTools(false); setShowWritingGuideSheet(true); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><PencilSimple size={15} style={{ color: ui.accent }} />写作指导</button>
+            <button type="button" onClick={() => { setShowQuickTools(false); setSourceVisible(v => !v); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><Eye size={15} style={{ color: ui.accent }} />{sourceVisible ? '切换为阅读视图' : '查看当前源码'}</button>
+            <button type="button" disabled={activeWorld.turns.length <= 1 || generating} onClick={() => { setShowQuickTools(false); void rollbackLast(); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px] disabled:opacity-35" style={{ borderColor: palette.border }}><ArrowCounterClockwise size={15} style={{ color: ui.accent }} />回退上一回合</button>
+            <button type="button" disabled={activeWorld.turns.length <= 1 || generating} onClick={() => { setShowQuickTools(false); void rerollLast(); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px] disabled:opacity-35" style={{ borderColor: palette.border }}><ArrowRight size={15} style={{ color: ui.accent }} />重写这一回合</button>
+            <button type="button" onClick={() => { setShowQuickTools(false); try { navigator.clipboard?.writeText(JSON.stringify(activeWorld, null, 2)); addToast('世界档案已复制', 'success'); } catch { addToast('复制失败', 'error'); } }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><Copy size={15} style={{ color: ui.accent }} />复制世界档案</button>
+        </div>
+    </EchoesSheet>;
 
     return <div className="echoes-root relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
         {ui.customCss && <style dangerouslySetInnerHTML={{ __html: ui.customCss }} />}
         <div className="pointer-events-none absolute inset-0" style={{ background: atmosphereStyle }} />
         <header className={`sully-echoes-chrome relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-b-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}e6`, borderColor: palette.border }}>
-            <button onClick={() => { setView('lobby'); setActiveWorld(null); setActiveTab('story'); setFreshTurnId(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="返回世界列表"><ArrowLeft size={19} /></button>
+            <button onClick={() => setView('cover')} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="返回世界封面"><ArrowLeft size={19} /></button>
             <div className="min-w-0 flex-1"><p className="truncate text-[9px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>ECHOES · {modeLabel(activeWorld.mode)}</p><h1 className="truncate text-[14px] font-bold">{activeWorld.title}</h1></div>
-            <button onClick={() => setShowWritingGuideSheet(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="写作指导"><PencilSimple size={17} /></button>
-            <button onClick={() => setShowInspector(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="世界检查"><Eye size={17} /></button>
-            <button onClick={() => setShowSettings(true)} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="界面设置"><GearSix size={17} /></button>
+            <button onClick={() => { setSettingsSection('experience'); setShowSettings(true); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="世界设置"><GearSix size={17} /></button>
         </header>
-        <div className={`sully-echoes-chrome relative z-10 flex shrink-0 items-center justify-between border-b px-4 py-2 text-[10px] ${globalLiquidGlass ? 'bg-white/10 backdrop-blur-xl border-white/15' : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}b8`, borderColor: palette.border, color: globalLiquidGlass ? 'rgba(15,23,42,.68)' : palette.muted }}><span className="inline-flex items-center gap-1.5"><MapPin size={12} style={{ color: ui.accent }} />{activeWorld.state.location}</span><span>{activeWorld.state.time}</span><span>{activeWorld.state.chapter}</span><span>{activeWorld.turns.length} 回合</span></div>
+        <div className={`sully-echoes-chrome relative z-10 flex shrink-0 items-center justify-between border-b px-4 py-2 text-[10px] ${globalLiquidGlass ? 'bg-white/10 backdrop-blur-xl border-white/15' : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}b8`, borderColor: palette.border, color: globalLiquidGlass ? 'rgba(15,23,42,.68)' : palette.muted }}><span className="inline-flex items-center gap-1.5"><MapPin size={12} style={{ color: ui.accent }} />{sceneState.location}</span><span>{sceneState.time}</span><span>{sceneState.chapter}</span><span>{activeWorld.turns.length} 回合</span></div>
         <main
             ref={storyContainerRef}
             className="relative z-[1] min-h-0 flex-1 overflow-y-auto overscroll-contain"
             style={{ WebkitOverflowScrolling: 'touch' }}
             onScroll={() => {
                 if (activeTab === 'story' && storyContainerRef.current) {
-                    scrollPosRef.current = storyContainerRef.current.scrollTop;
-                    if (globalLiquidGlass) setLiquidGlassShrunk(storyContainerRef.current.scrollTop > 18);
+                    const element = storyContainerRef.current;
+                    persistStoryScroll(element, element.scrollTop);
+                    if (globalLiquidGlass) setLiquidGlassShrunk(element.scrollTop > 18);
                 }
             }}
         >
-            {activeTab === 'story' ? storyView : activeTab === 'relations' ? relationsView : statusView}
+            {activeTab === 'story' && !isNearLatest && <button type="button" onClick={scrollToLatest} className="sticky right-0 top-3 z-10 ml-auto mr-3 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold shadow-sm backdrop-blur" style={{ borderColor: `${ui.accent}45`, color: ui.accent, background: `${palette.panel}e8` }}><ArrowRight size={13} className="rotate-90" />回到最新</button>}
+            {activeTab === 'story' ? storyView : activeTab === 'progress' ? progressView : activeTab === 'relations' ? relationsView : archiveView}
         </main>
+        {activeTab === 'story' && <div className="pointer-events-none absolute right-2 z-20 flex flex-col items-center justify-center gap-2" style={{ top: 'calc(var(--safe-top) + 6.5rem)', bottom: 'calc(var(--safe-bottom) + 7rem)' }}>
+            {[
+                { label: '回到故事顶部', disabled: isAtStoryTop, icon: <CaretDoubleUp size={22} weight="bold" />, action: () => scrollToStoryEdge('top') },
+                { label: '上一回合', disabled: isAtStoryTop, icon: <CaretUp size={22} weight="bold" />, action: () => scrollToTurn('previous') },
+                { label: '下一回合', disabled: isNearLatest, icon: <CaretDown size={22} weight="bold" />, action: () => scrollToTurn('next') },
+                { label: '回到故事底部', disabled: isNearLatest, icon: <CaretDoubleDown size={22} weight="bold" />, action: () => scrollToStoryEdge('bottom') },
+            ].map(button => <button
+                key={button.label}
+                type="button"
+                aria-label={button.label}
+                disabled={button.disabled}
+                onClick={button.action}
+                className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full border shadow-sm backdrop-blur-xl transition active:scale-95 disabled:opacity-35"
+                style={{ color: palette.text, borderColor: palette.border, background: `${palette.panel}e8`, boxShadow: `0 5px 18px ${ui.accent}12, inset 0 1px 0 rgba(255,255,255,.55)` }}
+            >{button.icon}</button>)}
+        </div>}
         {actionDock}
         <nav className={`sully-echoes-chrome relative z-10 flex shrink-0 items-stretch border-t pb-[var(--safe-bottom)] ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f7`, borderColor: palette.border }}>
             {tabItems.map(tab => {
@@ -1504,7 +2174,17 @@ const EchoesApp: React.FC = () => {
                 </button>;
             })}
         </nav>
-        {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}
+        {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}{renderQuickTools()}
+        {confirmRestart && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" onClick={() => setConfirmRestart(false)}>
+            <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl p-5" style={{ background: palette.panel, color: palette.text }}>
+                <h3 className="mb-2 font-bold">回到世界序幕？</h3>
+                <p className="mb-4 text-xs leading-relaxed" style={{ color: palette.muted }}>当前进度会被清空，世界回到最初的状态。这个操作不会删除世界本身。</p>
+                <div className="flex justify-end gap-2 text-xs">
+                    <button type="button" onClick={() => setConfirmRestart(false)} className="rounded-lg px-3 py-1.5 opacity-70 hover:bg-black/5">取消</button>
+                    <button type="button" onClick={() => void restartWorld()} className="rounded-lg px-3 py-1.5 font-semibold text-red-500 hover:bg-red-500/10">确认回到序幕</button>
+                </div>
+            </div>
+        </div>}
     </div>;
 };
 
