@@ -1169,10 +1169,10 @@ const McdMiniApp: React.FC<McdMiniAppProps> = ({ open, onClose, char, userProfil
                 }
             }
             if (activeCodes.size > 0) {
-                const filtered: Record<string, { name?: string; currentPrice?: string }> = {};
+                const filtered: Record<string, { name: string; currentPrice?: string }> = {};
                 for (const code of activeCodes) {
                     const meal = fullMeals[code];
-                    if (meal && meal.name) filtered[code] = meal;
+                    if (meal && meal.name) filtered[code] = { name: meal.name, currentPrice: meal.currentPrice };
                 }
                 menuMealsForAI = filtered;
             }
