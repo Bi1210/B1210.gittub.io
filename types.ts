@@ -1,4 +1,10 @@
 
+import type { EchoesMechanicActionRequest } from './utils/echoesMechanicActionsTypes';
+import type { EchoesChoice, EchoesEndingTrigger } from './utils/echoesTurnProtocolTypes';
+
+import type { EchoesMechanicInstance, EchoesMechanicPatch } from './utils/echoesMechanicsTypes';
+import type { EchoesNovelProfile } from './utils/echoesNovelProfileTypes';
+
 export enum AppID {
   Launcher = 'launcher',
   Settings = 'settings',
@@ -3445,8 +3451,12 @@ export interface EchoesDirectorState {
 export interface EchoesTurn {
     id: string;
     action: string;
+    /** Raw narrative input, separate from a local mechanic action label. */
+    playerAction?: string;
     blocks: EchoesContentBlock[];
     suggestions: string[];
+    choices?: EchoesChoice[];
+    endingTriggered?: EchoesEndingTrigger;
     chapter: string;
     /** 本回合的情绪/氛围标签，用于顶部纯文字氛围卡展示，如"压抑"、"温柔"、"紧张对峙"。 */
     mood?: string;
@@ -3459,6 +3469,17 @@ export interface EchoesTurn {
     /** 回退时恢复事实账本，避免只恢复数值却留下本轮新事实。 */
     beforeKnownFacts?: string[];
     beforeHardFacts?: string[];
+    hardFactsToLock?: string[];
+    afterHardFacts?: string[];
+    hardFactsRecorded?: boolean;
+    /** Trusted mechanism cursor before this turn; rebuilt by the storage gate. */
+    beforeMechanics?: EchoesMechanicInstance[];
+    /** AI-originated patches after runtime allowlist filtering. */
+    mechanicPatches?: EchoesMechanicPatch[];
+    /** Local UI action, represented only by stable IDs. */
+    mechanicAction?: EchoesMechanicActionRequest;
+    /** Trusted mechanism cursor after local + AI patches. */
+    afterMechanics?: EchoesMechanicInstance[];
     createdAt: number;
 }
 
@@ -3476,6 +3497,7 @@ export interface EchoesWorld {
     ui: EchoesUIProfile;
     /** 世界创建时的基线，用于重建老存档与分支回退。 */
     initialState: EchoesState;
+    initialHardFacts: string[];
     initialDirector: EchoesDirectorState;
     initialContinuitySummary?: string;
     state: EchoesState;
@@ -3487,6 +3509,11 @@ export interface EchoesWorld {
     /** 长篇压缩记忆；只作为辅助上下文，不能覆盖硬事实。 */
     continuitySummary: string;
     hardFacts: string[];
+    /** Novel import/profile is optional: absent means legacy world, malformed is quarantined on storage. */
+    novelProfile?: EchoesNovelProfile;
+    /** Trusted normalized mechanics cursor for this world. */
+    mechanics: EchoesMechanicInstance[];
+    initialMechanics: EchoesMechanicInstance[];
     knownFacts: string[];
     turns: EchoesTurn[];
     createdAt: number;
