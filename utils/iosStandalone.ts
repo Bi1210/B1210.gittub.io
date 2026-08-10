@@ -103,6 +103,13 @@ const setViewportVars = () => {
 
     let fullAppHeight: number;
     let keyboardInset: number;
+    // 自理安全区的 App（shellPadsSafeArea=false，见 utils/safeAreaApps.ts，目前几乎全部 App）由
+    // PhoneShell 用 `bottom: var(--standalone-safe-area-bottom)` 把外壳底边从 body 底部收回可见 viewport。
+    // 无键盘态 body 比可见区多出 +bottomSafeInset 的溢出区（留给 home 条），这个收回是对的；
+    // 键盘态 fullAppHeight 已经等于「键盘上方的可视区」，body 底边本身就贴着键盘顶部，没有多余溢出区可收，
+    // 若仍收回同样的 bottomSafeInset，会把外壳硬生生削短一截，在输入框和键盘之间露出 body 背景色的空隙
+    // （所有走这条兜底逻辑的 App 键盘弹起时都会看到）。故键盘态下该变量必须归零，与 fullAppHeight 的口径保持一致。
+    let standaloneSafeBottomInsetForVar = bottomSafeInset;
 
     if (shouldStabilizeHeight) {
         // 全屏 PWA 没有地址栏，可视高度只在软键盘弹出时变矮。基线取「见过的最大可视高度」。
@@ -115,6 +122,7 @@ const setViewportVars = () => {
         const keyboardOpen = viewportHeight > 150 && viewportHeight < stableStandaloneHeight - 100;
         // 键盘态：app 高度收到当前可视区（home 条已被键盘盖，不再叠加 safe）；无键盘态：基线 + safe（底部给 home 条留位）。
         fullAppHeight = keyboardOpen ? viewportHeight : stableStandaloneHeight + bottomSafeInset;
+        standaloneSafeBottomInsetForVar = keyboardOpen ? 0 : bottomSafeInset;
         // standalone 下键盘避让改由「app 高度跟随可视区」统一处理，keyboard-inset 置 0，避免 CallApp 等再叠一层 padding。
         keyboardInset = 0;
         // iOS 26 键盘弹出会把整页顶上去（visualViewport.offsetTop > 0），拉回顶部对齐可视区；
@@ -136,6 +144,7 @@ const setViewportVars = () => {
             // 再把被浏览器顶起的外层滚动拉回顶部（配合 body.ios-keyboard-open 的 touchmove 锁定），
             // 界面不再整体上移、退出重进才恢复。
             fullAppHeight = viewportHeight;
+            standaloneSafeBottomInsetForVar = 0;
             if (viewportOffsetTop > 0) window.scrollTo(0, 0);
         } else {
             fullAppHeight = Math.max(innerHeight, viewportHeight + viewportOffsetTop);
@@ -145,7 +154,7 @@ const setViewportVars = () => {
     document.documentElement.style.setProperty('--app-height', `${fullAppHeight}px`);
     document.documentElement.style.setProperty('--visual-viewport-height', `${viewportHeight}px`);
     document.documentElement.style.setProperty('--keyboard-inset', `${keyboardInset}px`);
-    document.documentElement.style.setProperty('--standalone-safe-area-bottom', `${bottomSafeInset}px`);
+    document.documentElement.style.setProperty('--standalone-safe-area-bottom', `${standaloneSafeBottomInsetForVar}px`);
     document.documentElement.style.setProperty('--standalone-safe-area-top', `${topSafeInset}px`);
 };
 
