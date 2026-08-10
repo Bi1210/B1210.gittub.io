@@ -3483,6 +3483,16 @@ export interface EchoesTurn {
     createdAt: number;
 }
 
+/** 用户在"回想"tab 里手动标记的回合片段。 */
+export interface EchoesHighlight {
+    id: string;
+    turnId: string;
+    /** 被标记的原文段落（截取，最多300字）。 */
+    text: string;
+    chapter: string;
+    createdAt: number;
+}
+
 export interface EchoesWorld {
     id: string;
     title: string;
@@ -3511,6 +3521,8 @@ export interface EchoesWorld {
     hardFacts: string[];
     /** Novel import/profile is optional: absent means legacy world, malformed is quarantined on storage. */
     novelProfile?: EchoesNovelProfile;
+    /** "回想"tab：用户手动标记的正文片段。可选：缺省视为空数组（老存档兼容）。 */
+    highlights?: EchoesHighlight[];
     /** Trusted normalized mechanics cursor for this world. */
     mechanics: EchoesMechanicInstance[];
     initialMechanics: EchoesMechanicInstance[];

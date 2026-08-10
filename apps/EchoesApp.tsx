@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Archive, ArrowLeft, ArrowRight, BookOpenText, BracketsCurly, CaretDoubleDown, CaretDoubleUp, CaretDown, CaretUp, Check, CircleNotch, Compass,
-    Copy, Eye, FileText, GearSix, GitBranch, MapPin, Palette,
+    Archive, ArrowLeft, ArrowRight, BookOpenText, BookmarkSimple, BracketsCurly, CaretDoubleDown, CaretDoubleUp, CaretDown, CaretUp, Check, CircleNotch, Compass,
+    Copy, Eye, FileText, GearSix, GitBranch, Globe, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
-    X, ChartLine,
+    X,
 } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
@@ -11,7 +11,7 @@ import { extractContent, extractJson, safeResponseJson } from '../utils/safeApi'
 import {
     EchoesContentBlock, EchoesFormat, EchoesLayout, EchoesMode, EchoesQualityMode, EchoesState,
     EchoesTheme, EchoesTurn, EchoesUIProfile, EchoesWorld, EchoesWritingGuide, EchoesProtocolConfig,
-    ApiPreset, APIConfig, EchoesApiConfig, EchoesApiCallLogEntry,
+    ApiPreset, APIConfig, EchoesApiConfig, EchoesApiCallLogEntry, EchoesHighlight,
 } from '../types';
 import EchoesContentRenderer from '../components/echoes/EchoesContentRenderer';
 import EchoesApiSettings from '../components/echoes/EchoesApiSettings';
@@ -911,7 +911,7 @@ const EchoesApp: React.FC = () => {
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [openFold, setOpenFold] = useState<string>('world'); // 创建界面当前展开的折叠块ID
     const [createStep, setCreateStep] = useState(1); // 创建界面步骤：1=世界观 2=游戏设定 3=可选细节
-    const [activeTab, setActiveTab] = useState<'story' | 'progress' | 'relations' | 'archive'>('story'); // 世界内部四个入口；章节归入进展
+    const [activeTab, setActiveTab] = useState<'story' | 'lore' | 'relations' | 'highlights'>('story'); // 世界内部四个入口：本纪 / 人物 / 世界志 / 回想；章节目录归入本纪标题栏
     const [showRawState, setShowRawState] = useState(false); // 状态页里的原始 JSON 折叠开关
     const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
     const [showNaturalProgressHint, setShowNaturalProgressHint] = useState(false);
@@ -2106,8 +2106,8 @@ const EchoesApp: React.FC = () => {
                     </button>
 
                     <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
-                        <button type="button" onClick={() => { setActiveTab('progress'); setView('play'); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>章节目录</button>
-                        <button type="button" onClick={() => { setActiveTab('archive'); setView('play'); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>世界资料</button>
+                        <button type="button" onClick={() => { setActiveTab('story'); setView('play'); setShowQuickTools(true); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>章节目录</button>
+                        <button type="button" onClick={() => { setActiveTab('lore'); setView('play'); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>世界志</button>
                         <button type="button" disabled={!world.turns.length} onClick={() => setConfirmRestart(true)} className="rounded-xl border px-3 py-2.5 disabled:opacity-35" style={{ borderColor: coverPalette.border }}>从头开始</button>
                         <button type="button" onClick={() => { setView('lobby'); setActiveWorld(null); }} className="rounded-xl border px-3 py-2.5" style={{ borderColor: coverPalette.border }}>切换世界</button>
                     </div>
@@ -2142,10 +2142,10 @@ const EchoesApp: React.FC = () => {
             ? 'radial-gradient(ellipse at 80% 0%, rgba(129,140,248,.14), transparent 50%), radial-gradient(ellipse at 0% 80%, rgba(244,114,182,.07), transparent 48%)'
             : `radial-gradient(ellipse at 80% 0%, ${ui.accent}12, transparent 52%)`;
     const tabItems = [
-        { key: 'story' as const, label: '故事', icon: BookOpenText },
-        { key: 'progress' as const, label: '进展', icon: ChartLine },
+        { key: 'story' as const, label: '本纪', icon: BookOpenText },
+        { key: 'lore' as const, label: '世界志', icon: Globe },
         { key: 'relations' as const, label: ui.labels.people, icon: UsersThree },
-        { key: 'archive' as const, label: '资料', icon: Archive },
+        { key: 'highlights' as const, label: '回想', icon: BookmarkSimple },
     ];
 
     const activeMechanics = (lastTurn?.afterMechanics || activeWorld.mechanics)
@@ -2161,10 +2161,15 @@ const EchoesApp: React.FC = () => {
             <div className={activeWorld.ui.layout === 'archive' ? 'space-y-4' : 'space-y-8'}>
                 {activeWorld.turns.map((turn, index) => {
                     const isFresh = turn.id === freshTurnId && ui.typewriterEffect !== false;
-                    return <article key={turn.id} data-echoes-turn={turn.id} className={`${index === activeWorld.turns.length - 1 ? '' : 'opacity-[.88]'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-2xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: `${palette.panel}cc`, borderColor: palette.border } : undefined}>
+                    const isHighlighted = (activeWorld.highlights ?? []).some(h => h.turnId === turn.id);
+                    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+                    const startPress = () => { pressTimer = setTimeout(() => { void addHighlight(turn); }, 550); };
+                    const cancelPress = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+                    return <article key={turn.id} data-echoes-turn={turn.id} onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={cancelPress} onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress} className={`relative select-none ${index === activeWorld.turns.length - 1 ? '' : 'opacity-[.88]'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-2xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: `${palette.panel}cc`, borderColor: palette.border } : undefined}>
                         {index > 0 && <div className="mb-3 flex items-center gap-2 text-[10px]" style={{ color: palette.muted }}><span className="h-px flex-1" style={{ background: palette.border }} /><span>{turn.chapter || activeWorld.state.chapter}</span><span className="h-px flex-1" style={{ background: palette.border }} /></div>}
                         {turn.action !== '（开场）' && <div className="mb-3 rounded-xl px-3 py-2 text-[10px]" style={{ background: `${ui.accent}09`, color: palette.muted }}><span style={{ color: ui.accent }}>{turn.action === '（顺其发展）' ? '世界推进' : '你的行动'}</span><span className="mx-1.5 opacity-40">/</span>{turn.action}</div>}
                         <TypewriterReveal active={isFresh}>{turn.blocks.map(block => <EchoesContentRenderer key={block.id} block={block} accent={ui.accent} sourceVisible={sourceVisible && ui.showSourceToggle} />)}</TypewriterReveal>
+                        {isHighlighted && <div className="absolute -left-1 top-0 flex h-full items-center" aria-hidden="true"><BookmarkSimple size={13} weight="fill" style={{ color: ui.accent }} /></div>}
                     </article>;
                 })}
             </div>
@@ -2185,34 +2190,104 @@ const EchoesApp: React.FC = () => {
         return groups;
     })();
 
-    const progressView = <div className="mx-auto w-full max-w-2xl space-y-3 px-4 pb-6 pt-4">
-        <div className="mb-2"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>PROGRESS</p><h2 className="mt-1 text-xl font-bold">进展</h2><p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>章节、当前目标、活跃线索和未解决的问题都在这里，不占用底部导航。</p></div>
-        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}>
-            <div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><BookOpenText size={16} />{ui.labels.chapters}</div>
-            <div className="space-y-1.5">{chapterGroups.map((group, i) => <button key={`${group.chapter}-${i}`} type="button" onClick={() => { setActiveTab('story'); scrollToTurnId(group.firstTurnId); }} className="flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-xs" style={{ borderColor: palette.border, background: i === chapterGroups.length - 1 ? `${ui.accent}0c` : 'transparent' }}><span className="font-semibold">{group.chapter}</span><span style={{ color: palette.muted }}>{group.turnCount} 回合{i === chapterGroups.length - 1 ? ' · 阅读中' : ''}</span></button>)}</div>
-        </section>
-        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}>
-            <div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><ChartLine size={16} />当前剧情目标</div>
-            {activeWorld.director.currentGoal && <p className="text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: palette.text }}>当前方向：</span>{activeWorld.director.currentGoal}</p>}
-            {activeWorld.director.chapterGoal && <p className="mt-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: palette.text }}>章节目标：</span>{activeWorld.director.chapterGoal}</p>}
-            <div className="mt-3 flex items-center justify-between text-xs"><span style={{ color: palette.muted }}>{activeWorld.director.sceneType || '场景推进'}</span><span>{activeWorld.director.pressure} / 100</span></div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: `${ui.accent}18` }}><div className="h-full rounded-full transition-all" style={{ width: `${activeWorld.director.pressure}%`, background: ui.accent }} /></div>
-        </section>
-        <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}88` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><GitBranch size={15} />正在牵动的线索</div>{activeWorld.director.activeThreads.length > 0 ? <div className="space-y-2">{activeWorld.director.activeThreads.map((thread, i) => <div key={`${thread}-${i}`} className="flex gap-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: ui.accent }}>0{i + 1}</span><span>{thread}</span></div>)}</div> : <p className="text-xs opacity-50">暂无已记录的活跃线索。</p>}</section>
-        {activeWorld.director.unresolvedQuestions.length > 0 && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}88` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><WarningCircle size={15} />未解决的问题</div><div className="space-y-2">{activeWorld.director.unresolvedQuestions.map((q, i) => <div key={`${q}-${i}`} className="flex gap-2 text-xs leading-relaxed" style={{ color: palette.muted }}><span style={{ color: ui.accent }}>?</span><span>{q}</span></div>)}</div></section>}
+    // 世界志：从已通过校验的 hardFacts/knownFacts 中派生分类展示。
+    // 按关键词启发式归类为：地点、势力/组织、人物概念、纪年/事件、名词解释。
+    // 这是第一版（A方案只读分类视图）；后续接入 lore_codex mechanic 时内容升级，框架不变。
+    const LORE_CATEGORIES = [
+        { key: 'place',  label: '地点',   keywords: ['地方', '地点', '城市', '区域', '公寓', '街道', '建筑', '遗址', '空间', '位置', '场所', '地带', '地区', '境', '城', '殿', '岛', '山', '湖', '海', '森林', '房间', '大楼', '园', '宫', '洞', '谷', '港', '站', '部', '院', '所', '馆', '阵地'] },
+        { key: 'faction',label: '势力',   keywords: ['组织', '势力', '联盟', '公会', '家族', '派系', '阵营', '机构', '政府', '帝国', '王国', '公司', '团', '队', '会', '派', '军', '党', '门', '堂', '宗', '营', '社', '部落', '天榜', '小队', '零序'] },
+        { key: 'event',  label: '纪年/事件', keywords: ['年', '月', '日', '事件', '之战', '之乱', '纪元', '时代', '历史', '发生', '那年', '那天', '那一天', '当年', '灾难', '变故', '始于', '终于', '降临', '崩塌', '万象', '副本', '开局', '序章'] },
+        { key: 'concept',label: '名词解释', keywords: [] }, // 兜底分类
+    ];
+    const classifyLoreFact = (fact: string): string => {
+        for (const cat of LORE_CATEGORIES.slice(0, -1)) {
+            if (cat.keywords.some(kw => fact.includes(kw))) return cat.key;
+        }
+        return 'concept';
+    };
+    const allFacts = [...new Set([...activeWorld.hardFacts, ...activeWorld.knownFacts])];
+    const loreByCategory = LORE_CATEGORIES.map(cat => ({
+        ...cat,
+        facts: allFacts.filter(f => classifyLoreFact(f) === cat.key),
+    })).filter(cat => cat.facts.length > 0);
+
+    const loreView = <div className="mx-auto w-full max-w-2xl space-y-5 px-4 pb-8 pt-4">
+        <div className="mb-1">
+            <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>LORE</p>
+            <h2 className="mt-1 text-xl font-bold">世界志</h2>
+            <p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>
+                {activeWorld.worldSetting && <span className="block mb-3 border-l-2 pl-3 italic leading-relaxed" style={{ borderColor: `${ui.accent}40` }}>{activeWorld.worldSetting.slice(0, 200)}{activeWorld.worldSetting.length > 200 ? '……' : ''}</span>}
+                {allFacts.length === 0 ? '世界的轮廓随故事推进而浮现，此处将会逐渐充实。' : `已记录 ${allFacts.length} 条世界事实，按类别整理如下。`}
+            </p>
+        </div>
+        {loreByCategory.length > 0 ? loreByCategory.map(cat => (
+            <section key={cat.key} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}>
+                <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest" style={{ color: ui.accent }}>{cat.label}</h3>
+                <ul className="space-y-2">
+                    {cat.facts.map((fact, i) => (
+                        <li key={`${fact}-${i}`} className="text-xs leading-relaxed" style={{ color: palette.muted }}>
+                            <span className="mr-2 font-medium" style={{ color: palette.text }}>{fact.split(/[，。：:]/)[0]}</span>
+                            {fact.includes('：') || fact.includes(':') ? fact.slice(fact.indexOf(fact.split(/[：:]/)[0]) + fact.split(/[：:]/)[0].length + 1) : ''}
+                        </li>
+                    ))}
+                </ul>
+            </section>
+        )) : (
+            <div className="rounded-2xl border border-dashed p-10 text-center text-xs opacity-50" style={{ borderColor: palette.border }}>
+                <Globe size={28} className="mx-auto mb-3 opacity-30" style={{ color: ui.accent }} />
+                <p>世界的记录从第一个故事开始。</p>
+                <p className="mt-1 opacity-60">随着剧情推进，地点、势力与重要事件将在此留存。</p>
+            </div>
+        )}
+    </div>;
+
+    // 回想：用户手动标记的正文片段。点击"标记"图标将当前回合正文存入 highlights[]。
+    const worldHighlights = activeWorld.highlights ?? [];
+    const addHighlight = async (turn: EchoesTurn) => {
+        const text = turn.blocks.filter(b => b.kind === 'narrative' || b.kind === 'dialogue').map(b => b.content).join('\n').trim().slice(0, 300);
+        if (!text) return;
+        const newH: EchoesHighlight = { id: `hl-${Date.now()}`, turnId: turn.id, text, chapter: turn.chapter || activeWorld.state.chapter, createdAt: Date.now() };
+        const updated = { ...activeWorld, highlights: [...worldHighlights, newH] };
+        setActiveWorld(updated);
+        await persistWorld(updated);
+    };
+    const removeHighlight = async (id: string) => {
+        const updated = { ...activeWorld, highlights: worldHighlights.filter(h => h.id !== id) };
+        setActiveWorld(updated);
+        await persistWorld(updated);
+    };
+
+    const highlightsView = <div className="mx-auto w-full max-w-2xl space-y-4 px-4 pb-8 pt-4">
+        <div className="mb-1">
+            <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>ECHOES</p>
+            <h2 className="mt-1 text-xl font-bold">回想</h2>
+            <p className="mt-1 text-xs" style={{ color: palette.muted }}>在本纪里长按任意回合，可以将那一幕存进回想。</p>
+        </div>
+        {worldHighlights.length > 0 ? (
+            <div className="space-y-3">
+                {worldHighlights.slice().reverse().map(hl => (
+                    <div key={hl.id} className="group relative rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}>
+                        <div className="mb-2 flex items-center justify-between">
+                            <span className="text-[10px]" style={{ color: ui.accent }}>{hl.chapter}</span>
+                            <button type="button" onClick={() => void removeHighlight(hl.id)} className="opacity-0 group-hover:opacity-100 rounded-full p-1 transition-opacity hover:bg-black/10" aria-label="移除"><X size={13} style={{ color: palette.muted }} /></button>
+                        </div>
+                        <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: palette.text }}>{hl.text}</p>
+                        <button type="button" onClick={() => { setActiveTab('story'); scrollToTurnId(hl.turnId); }} className="mt-2 text-[10px] opacity-40 hover:opacity-70 transition-opacity" style={{ color: ui.accent }}>回到这一幕 →</button>
+                    </div>
+                ))}
+            </div>
+        ) : (
+            <div className="rounded-2xl border border-dashed p-10 text-center text-xs opacity-50" style={{ borderColor: palette.border }}>
+                <BookmarkSimple size={28} className="mx-auto mb-3 opacity-30" style={{ color: ui.accent }} />
+                <p>还没有留下任何印记。</p>
+                <p className="mt-1 opacity-60">在本纪里长按一个回合，就能把那一幕存进这里。</p>
+            </div>
+        )}
     </div>;
 
     const relationsView = <div className="mx-auto w-full max-w-2xl px-4 pb-6 pt-4">
         <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>CAST</p><h2 className="mt-1 text-xl font-bold">{ui.labels.people}</h2><p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>人物不会被预先锁死；这里记录已经在世界中出现、或由你明确写入的角色。</p></div>
         {castEntries.length > 0 ? <div className="space-y-2.5">{castEntries.map((entry, index) => <div key={`${entry.name}-${index}`} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold" style={{ color: ui.accent, background: `${ui.accent}18` }}>{entry.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-bold">{entry.name}</h3>{entry.isPlayer && <span className="rounded-full px-2 py-0.5 text-[9px]" style={{ color: ui.accent, background: `${ui.accent}16` }}>玩家</span>}</div><p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed" style={{ color: palette.muted }}>{entry.detail}</p></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed p-8 text-center text-xs opacity-55" style={{ borderColor: palette.border }}>故事会在人物出现后逐渐形成关系。</div>}
-    </div>;
-
-    const archiveView = <div className="mx-auto w-full max-w-2xl space-y-3 px-4 pb-6 pt-4">
-        <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>ARCHIVE</p><h2 className="mt-1 text-xl font-bold">资料</h2><p className="mt-1 text-xs" style={{ color: palette.muted }}>物品、状态和已知线索；幕后硬事实仍由 Echoes 负责维护，不会直接展示。</p></div>
-        {ui.showStatus && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><Compass size={16} />当前状态</div><div className="grid grid-cols-2 gap-3 text-xs"><div><span className="text-[10px] opacity-55">{ui.labels.time}</span><p className="mt-1 font-semibold">{activeWorld.state.time}</p></div><div><span className="text-[10px] opacity-55">{ui.labels.location}</span><p className="mt-1 font-semibold">{activeWorld.state.location}</p></div><div><span className="text-[10px] opacity-55">{ui.labels.chapters}</span><p className="mt-1 font-semibold">{activeWorld.state.chapter}</p></div><div><span className="text-[10px] opacity-55">回合</span><p className="mt-1 font-semibold">{activeWorld.turns.length}</p></div>{typeof activeWorld.state.health === 'number' && <div><span className="text-[10px] opacity-55">生命</span><p className="mt-1 font-semibold">{activeWorld.state.health}</p></div>}{typeof activeWorld.state.sanity === 'number' && <div><span className="text-[10px] opacity-55">精神</span><p className="mt-1 font-semibold">{activeWorld.state.sanity}</p></div>}</div></section>}
-        {!!activeWorld.state.inventory?.length && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><Archive size={16} />{ui.labels.inventory}</div><div className="flex flex-wrap gap-2">{activeWorld.state.inventory.map((item, i) => <span key={`${item}-${i}`} className="rounded-full px-2.5 py-1 text-[11px]" style={{ background: `${ui.accent}15`, color: ui.accent }}>{item}</span>)}</div></section>}
-        {ui.showFacts && <section className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}c7` }}><div className="mb-3 flex items-center gap-2 font-bold" style={{ color: ui.accent }}><FileText size={16} />{ui.labels.clues}</div>{activeWorld.knownFacts.length ? <ul className="space-y-2 text-xs leading-relaxed" style={{ color: palette.muted }}>{activeWorld.knownFacts.map((fact, i) => <li key={`${fact}-${i}`} className="flex gap-2"><span style={{ color: ui.accent }}>·</span><span>{fact}</span></li>)}</ul> : <p className="text-xs opacity-50">暂时没有可确认的记录。</p>}</section>}
-        <button onClick={() => setShowRawState(v => !v)} className="flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[11px] opacity-65" style={{ borderColor: palette.border }}><span>查看原始状态数据</span><CaretDown size={14} style={{ transform: showRawState ? 'rotate(180deg)' : undefined }} /></button>{showRawState && <pre className="max-h-80 overflow-auto rounded-xl p-3 font-mono text-[10px] leading-relaxed" style={{ background: `${palette.panel}b8` }}>{JSON.stringify(activeWorld.state, null, 2)}</pre>}
     </div>;
 
     const actionDock = activeTab === 'story' && <div className={`sully-echoes-chrome shrink-0 border-t px-3 pb-1.5 pt-1.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[24px] ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f8`, borderColor: palette.border }}>
@@ -2265,13 +2340,32 @@ const EchoesApp: React.FC = () => {
 
     const renderQuickTools = () => activeWorld && <EchoesSheet open={showQuickTools} onClose={() => setShowQuickTools(false)} title="本回合工具" icon={<Plus size={17} />} palette={palette}>
         <div className="space-y-1.5">
-            <button type="button" onClick={() => { setShowQuickTools(false); setActiveTab('progress'); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><BookOpenText size={15} style={{ color: ui.accent }} />章节目录 / 本章进展</button>
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: palette.border }}>
+                <div className="flex items-center gap-2.5 px-3 py-2.5 text-[12px]" style={{ color: palette.muted }}><BookOpenText size={15} style={{ color: ui.accent }} />章节目录</div>
+                {chapterGroups.length > 0 && <div className="border-t px-3 pb-2 pt-1 space-y-1" style={{ borderColor: palette.border }}>{chapterGroups.map((group, i) => <button key={group.firstTurnId} type="button" onClick={() => { setShowQuickTools(false); setActiveTab('story'); scrollToTurnId(group.firstTurnId); }} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-[11px] hover:bg-black/5" style={{ background: i === chapterGroups.length - 1 ? `${ui.accent}0a` : 'transparent' }}><span style={{ color: i === chapterGroups.length - 1 ? ui.accent : palette.text }}>{group.chapter}</span><span style={{ color: palette.muted }}>{group.turnCount} 回合</span></button>)}</div>}
+            </div>
             <button type="button" onClick={() => { setShowQuickTools(false); setShowWritingGuideSheet(true); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><PencilSimple size={15} style={{ color: ui.accent }} />写作指导</button>
             <button type="button" onClick={() => { setShowQuickTools(false); setSourceVisible(v => !v); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><Eye size={15} style={{ color: ui.accent }} />{sourceVisible ? '切换为阅读视图' : '查看当前源码'}</button>
             <button type="button" disabled={activeWorld.turns.length <= 1 || generating} onClick={() => { setShowQuickTools(false); void rollbackLast(); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px] disabled:opacity-35" style={{ borderColor: palette.border }}><ArrowCounterClockwise size={15} style={{ color: ui.accent }} />回退上一回合</button>
             <button type="button" disabled={activeWorld.turns.length <= 1 || generating} onClick={() => { setShowQuickTools(false); void rerollLast(); }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px] disabled:opacity-35" style={{ borderColor: palette.border }}><ArrowRight size={15} style={{ color: ui.accent }} />重写这一回合</button>
             <button type="button" onClick={() => { setShowQuickTools(false); try { navigator.clipboard?.writeText(JSON.stringify(activeWorld, null, 2)); addToast('世界档案已复制', 'success'); } catch { addToast('复制失败', 'error'); } }} className="flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[12px]" style={{ borderColor: palette.border }}><Copy size={15} style={{ color: ui.accent }} />复制世界档案</button>
         </div>
+        {(ui.showStatus || !!activeWorld.state.inventory?.length || ui.showFacts) && <div className="mt-4 space-y-1.5 border-t pt-4" style={{ borderColor: palette.border }}>
+            {ui.showStatus && <div className="rounded-xl border p-3 text-[11px]" style={{ borderColor: palette.border }}>
+                <div className="mb-2 flex items-center gap-2 font-semibold" style={{ color: ui.accent }}><Compass size={14} />当前状态</div>
+                <div className="grid grid-cols-2 gap-2"><div><span className="opacity-50">{ui.labels.time}</span><p className="mt-0.5 font-medium">{activeWorld.state.time}</p></div><div><span className="opacity-50">{ui.labels.location}</span><p className="mt-0.5 font-medium">{activeWorld.state.location}</p></div>{typeof activeWorld.state.health === 'number' && <div><span className="opacity-50">生命</span><p className="mt-0.5 font-medium">{activeWorld.state.health}</p></div>}{typeof activeWorld.state.sanity === 'number' && <div><span className="opacity-50">精神</span><p className="mt-0.5 font-medium">{activeWorld.state.sanity}</p></div>}</div>
+            </div>}
+            {!!activeWorld.state.inventory?.length && <div className="rounded-xl border p-3 text-[11px]" style={{ borderColor: palette.border }}>
+                <div className="mb-2 flex items-center gap-2 font-semibold" style={{ color: ui.accent }}><Archive size={14} />{ui.labels.inventory}</div>
+                <div className="flex flex-wrap gap-1.5">{activeWorld.state.inventory.map((item, i) => <span key={`${item}-${i}`} className="rounded-full px-2 py-0.5 text-[10px]" style={{ background: `${ui.accent}15`, color: ui.accent }}>{item}</span>)}</div>
+            </div>}
+            {ui.showFacts && activeWorld.knownFacts.length > 0 && <div className="rounded-xl border p-3 text-[11px]" style={{ borderColor: palette.border }}>
+                <div className="mb-2 flex items-center gap-2 font-semibold" style={{ color: ui.accent }}><FileText size={14} />{ui.labels.clues}</div>
+                <ul className="space-y-1.5 leading-relaxed" style={{ color: palette.muted }}>{activeWorld.knownFacts.map((fact, i) => <li key={`${fact}-${i}`} className="flex gap-1.5"><span style={{ color: ui.accent }}>·</span><span>{fact}</span></li>)}</ul>
+            </div>}
+            <button onClick={() => setShowRawState(v => !v)} className="flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-[10.5px] opacity-60" style={{ borderColor: palette.border }}><span>查看原始状态数据</span><CaretDown size={13} style={{ transform: showRawState ? 'rotate(180deg)' : undefined }} /></button>
+            {showRawState && <pre className="max-h-60 overflow-auto rounded-xl p-2.5 font-mono text-[9.5px] leading-relaxed" style={{ background: `${palette.panel}b8` }}>{JSON.stringify(activeWorld.state, null, 2)}</pre>}
+        </div>}
     </EchoesSheet>;
 
     return <div className="echoes-root relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: palette.bg, color: palette.text, ...textStyle, paddingTop: 'var(--safe-top)' }}>
@@ -2296,7 +2390,7 @@ const EchoesApp: React.FC = () => {
             }}
         >
             {activeTab === 'story' && !isNearLatest && <button type="button" onClick={scrollToLatest} className="sticky right-0 top-3 z-10 ml-auto mr-3 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold shadow-sm backdrop-blur" style={{ borderColor: `${ui.accent}45`, color: ui.accent, background: `${palette.panel}e8` }}><ArrowRight size={13} className="rotate-90" />回到最新</button>}
-            {activeTab === 'story' ? storyView : activeTab === 'progress' ? progressView : activeTab === 'relations' ? relationsView : archiveView}
+            {activeTab === 'story' ? storyView : activeTab === 'lore' ? loreView : activeTab === 'relations' ? relationsView : highlightsView}
         </main>
         {activeTab === 'story' && <div className="pointer-events-none absolute right-2 z-20 flex flex-col items-center justify-center gap-2" style={{ top: 'calc(var(--safe-top) + 6.5rem)', bottom: 'calc(var(--safe-bottom) + 7rem)' }}>
             {[
