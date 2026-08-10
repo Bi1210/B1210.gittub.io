@@ -2653,8 +2653,8 @@ export type MemoryPalaceWaterlinePreset = 'online' | 'balanced' | 'offline' | 'c
 /** 角色存档里保存的记忆宫殿水位配置，由 resolveMemoryPalaceWaterline 解析成实际数值。 */
 export interface MemoryPalaceWaterlineConfig {
   preset: MemoryPalaceWaterlinePreset;
-  customHotZoneSize?: number;
-  customBufferThreshold?: number;
+  hotZoneSize?: number;
+  bufferThreshold?: number;
 }
 
 /**

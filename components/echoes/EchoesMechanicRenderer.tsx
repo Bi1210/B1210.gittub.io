@@ -292,18 +292,18 @@ export const EchoesMechanicRenderer: React.FC<EchoesMechanicRendererProps> = ({ 
                 : <p className="text-[11px] leading-relaxed" style={{ color: palette.muted }}>当前还没有可公开确认的规则。</p>)}
             {data.kind === 'scenario_picker' && <div className="space-y-2">{data.options.slice(0, 8).map(option => <ScenarioRow key={option.id} option={option} accent={accent} muted={palette.muted} />)}</div>}
             {data.kind === 'event_card' && <div className="rounded-xl border px-3 py-3 text-[11px] leading-relaxed" style={{ borderColor: `${accent}22`, background: `${accent}06` }}>{data.data.body}</div>}
-            {data.kind === 'danmaku_stream' && <DanmakuList items={data.items} accent={accent} muted={palette.muted} />}
-            {data.kind === 'trending_board' && <div className="space-y-1.5">{data.entries.slice(0, 10).map(entry => <TrendingRow key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
-            {data.kind === 'live_room' && <LiveRoomCard data={data.data} accent={accent} muted={palette.muted} />}
-            {data.kind === 'countdown' && <CountdownCard data={data.data} accent={accent} muted={palette.muted} />}
-            {data.kind === 'inventory_grid' && <div className="grid grid-cols-2 gap-2">{data.items.slice(0, 12).map(item => <InventoryCell key={item.id} item={item} accent={accent} muted={palette.muted} border={palette.border} />)}</div>}
-            {data.kind === 'leaderboard' && <div className="space-y-1.5">{data.entries.slice(0, 10).map(entry => <LeaderboardRow key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
-            {data.kind === 'relationship_matrix' && <div className="space-y-2">{data.entries.slice(0, 10).map(entry => <RelationshipRow key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
-            {data.kind === 'schedule_board' && <div className="space-y-1.5">{data.entries.slice(0, 10).map(entry => <ScheduleRow key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
-            {data.kind === 'script_preview' && <ScriptPreviewCard data={data.data} accent={accent} muted={palette.muted} />}
-            {data.kind === 'evidence_board' && <div className="space-y-2">{data.entries.slice(0, 10).map(entry => <EvidenceRow key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
-            {data.kind === 'resource_panel' && <div className="grid grid-cols-2 gap-2">{data.entries.slice(0, 8).map(entry => <ResourceCell key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
-            {data.kind === 'generic_panel' && <GenericPanelCard data={data.data} accent={accent} muted={palette.muted} />}
+            {data.kind === 'danmaku_stream' && <DanmakuStream items={data.items} accent={accent} muted={palette.muted} />}
+            {data.kind === 'trending_board' && <TrendingBoard entries={data.entries} accent={accent} muted={palette.muted} />}
+            {data.kind === 'live_room' && <LiveRoom data={data.data} accent={accent} muted={palette.muted} />}
+            {data.kind === 'countdown' && <CountdownPanel data={data.data} accent={accent} muted={palette.muted} />}
+            {data.kind === 'inventory_grid' && <InventoryGrid items={data.items} accent={accent} muted={palette.muted} />}
+            {data.kind === 'leaderboard' && <LeaderboardPanel entries={data.entries} accent={accent} muted={palette.muted} />}
+            {data.kind === 'relationship_matrix' && <RelationshipMatrix entries={data.entries} accent={accent} muted={palette.muted} />}
+            {data.kind === 'schedule_board' && <ScheduleBoard entries={data.entries} accent={accent} muted={palette.muted} />}
+            {data.kind === 'script_preview' && <ScriptPreview data={data.data} accent={accent} muted={palette.muted} />}
+            {data.kind === 'evidence_board' && <EvidenceBoard entries={data.entries} accent={accent} muted={palette.muted} />}
+            {data.kind === 'resource_panel' && <ResourcePanel entries={data.entries} accent={accent} muted={palette.muted} />}
+            {data.kind === 'generic_panel' && <GenericPanel data={data.data} accent={accent} muted={palette.muted} />}
             {/* cast_roster / lore_codex 正常由"人物"/"世界志"两个独立 tab 渲染，不会内联到这里；此处仅作兜底，避免万一遗漏过滤时留白。 */}
             {data.kind === 'cast_roster' && <p className="text-[11px] leading-relaxed" style={{ color: palette.muted }}>{data.character.name} · 详见"{'人物'}"页</p>}
             {data.kind === 'lore_codex' && <p className="text-[11px] leading-relaxed" style={{ color: palette.muted }}>{data.entry.term} · 详见"世界志"页</p>}
