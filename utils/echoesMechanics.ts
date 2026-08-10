@@ -182,7 +182,7 @@ const normalizeData = (kind: EchoesMechanicKind, rawData: unknown): EchoesMechan
         case 'trending_board': {
             const entries: EchoesTrendingEntry[] = array(raw.entries, 50).map((item, index) => {
                 const value = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-                const rankChange = typeof value.rankChange === 'number' && Number.isFinite(value.rankChange)
+                const rankChange: EchoesRankChange = typeof value.rankChange === 'number' && Number.isFinite(value.rankChange)
                     ? integer(value.rankChange) : (value.rankChange === 'new' || value.rankChange === 'same' ? value.rankChange : 'same');
                 return {
                     id: text(value.id, 120) || `trend-${index + 1}`,
@@ -283,7 +283,7 @@ const normalizeData = (kind: EchoesMechanicKind, rawData: unknown): EchoesMechan
         case 'leaderboard': {
             const entries: EchoesLeaderboardEntry[] = array(raw.entries, 100).map((item, index) => {
                 const value = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-                const trend = typeof value.trend === 'number' && Number.isFinite(value.trend) ? integer(value.trend) : (value.trend === 'new' || value.trend === 'same' ? value.trend : 'same');
+                const trend: EchoesRankChange = typeof value.trend === 'number' && Number.isFinite(value.trend) ? integer(value.trend) : (value.trend === 'new' || value.trend === 'same' ? value.trend : 'same');
                 return { id: text(value.id, 120) || `leader-${index + 1}`, name: text(value.name, 300), score: finite(value.score), rank: Math.max(1, integer(value.rank, index + 1)), isPlayer: bool(value.isPlayer), trend };
             }).filter(item => item.name).sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id));
             return { kind, entries };

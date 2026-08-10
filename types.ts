@@ -1881,6 +1881,7 @@ export interface SongSheet {
     lyricCoWritingStyle?: LyricCoWritingStyle;
     // Optional user-uploaded artwork. Usually a blobref: token.
     coverImage?: string;
+    theme?: string;
 }
 
 // --- DATE APP TYPES ---
@@ -2634,6 +2635,25 @@ export interface CharacterProfile {
    * 独立于 proactiveConfig（主动发消息），互不挤占触发。
    */
   vrState?: VRWorldCharState;
+
+  /** 记忆宫殿冷热区水位配置。旧角色无此字段时自动回落到默认值（200/100）。 */
+  memoryPalaceWaterline?: MemoryPalaceWaterlineConfig;
+
+  /**
+   * 是否将上下文范围跟随记忆宫殿高水位线自动收缩。
+   * 开启后每轮对话的消息上下文窗口会贴着 HWM 动态裁剪，与 autoArchiveEnabled 独立。
+   */
+  contextFollowsMemoryPalaceHwm?: boolean;
+}
+
+/** 记忆宫殿水位预设名称。custom 允许用户手动填写具体数值。 */
+export type MemoryPalaceWaterlinePreset = 'online' | 'balanced' | 'offline' | 'custom';
+
+/** 角色存档里保存的记忆宫殿水位配置，由 resolveMemoryPalaceWaterline 解析成实际数值。 */
+export interface MemoryPalaceWaterlineConfig {
+  preset: MemoryPalaceWaterlinePreset;
+  customHotZoneSize?: number;
+  customBufferThreshold?: number;
 }
 
 /**

@@ -70,7 +70,7 @@ const normalizeStatePatch = (value: unknown): Partial<EchoesState> => {
     const sanity = finite(raw.sanity); if (sanity !== undefined) patch.sanity = Math.max(0, Math.min(100, sanity));
     if (Array.isArray(raw.inventory)) patch.inventory = list(raw.inventory, 100, 300);
     if (raw.resources && typeof raw.resources === 'object' && !Array.isArray(raw.resources)) patch.resources = Object.fromEntries(Object.entries(raw.resources as Record<string, unknown>).slice(0, 50).filter(([, item]) => typeof item === 'string' || typeof item === 'number').map(([key, item]) => [clean(key, 80), typeof item === 'number' ? item : clean(item, 300)]));
-    if (raw.custom && typeof raw.custom === 'object' && !Array.isArray(raw.custom)) patch.custom = Object.fromEntries(Object.entries(raw.custom as Record<string, unknown>).slice(0, 100).filter(([, item]) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean').map(([key, item]) => [clean(key, 80), typeof item === 'string' ? clean(item, 500) : item]));
+    if (raw.custom && typeof raw.custom === 'object' && !Array.isArray(raw.custom)) patch.custom = Object.fromEntries(Object.entries(raw.custom as Record<string, unknown>).slice(0, 100).filter(([, item]) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean').map(([key, item]) => [clean(key, 80), typeof item === 'string' ? clean(item, 500) : item])) as Record<string, string | number | boolean>;
     return patch;
 };
 
@@ -96,7 +96,7 @@ const normalizeChoices = (value: unknown, max: number): EchoesChoice[] => Array.
 const normalizeMechanicPatches = (value: unknown, max: number): EchoesMechanicPatch[] => Array.isArray(value) ? value.slice(0, max).filter(item => item && typeof item === 'object').map(item => item as EchoesMechanicPatch) : [];
 
 export const parseEchoesTurnOutput = (response: unknown, options: EchoesTurnParserOptions = {}): EchoesTurnParseResult => {
-    const formats = options.allowedFormats?.length ? options.allowedFormats : ['text', 'markdown'];
+    const formats = (options.allowedFormats?.length ? options.allowedFormats : ['text', 'markdown']) as readonly EchoesFormat[];
     const maxBlocks = options.maxBlocks ?? 24;
     const maxChoices = options.maxChoices ?? 6;
     const maxFacts = options.maxFacts ?? 200;

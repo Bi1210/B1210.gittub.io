@@ -199,6 +199,11 @@ const GameMarkdown: React.FC<{ content: string, theme: any, customStyle?: { font
 const GameApp: React.FC = () => {
     const { closeApp, characters, userProfile, apiConfig, addToast, updateCharacter, characterGroups, registerBackHandler } = useOS();
 
+    const [view, setView] = useState<'lobby' | 'create' | 'play'>('lobby');
+    const [games, setGames] = useState<GameSession[]>([]);
+    const [activeGame, setActiveGame] = useState<GameSession | null>(null);
+    const [lobbyPage, setLobbyPage] = useState(0); // 存档大厅分页（每页 5 条）
+
     // 侧滑/返回键内部层级处理：用 ref 持有最新 view，避免 effect 时序问题。
     // create / play 页 → 返回大厅；大厅返回 false，让侧滑正常退出 App。
     const viewRef = useRef(view);
@@ -212,10 +217,6 @@ const GameApp: React.FC = () => {
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [registerBackHandler]); // 只注册一次，通过 ref 读取最新 view
-    const [view, setView] = useState<'lobby' | 'create' | 'play'>('lobby');
-    const [games, setGames] = useState<GameSession[]>([]);
-    const [activeGame, setActiveGame] = useState<GameSession | null>(null);
-    const [lobbyPage, setLobbyPage] = useState(0); // 存档大厅分页（每页 5 条）
     
     // Creation State
     const [newTitle, setNewTitle] = useState('');

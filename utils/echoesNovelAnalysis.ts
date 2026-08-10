@@ -801,11 +801,11 @@ export function validateNovelAnalysis(analysis: unknown): NovelAnalysisValidatio
     }
     if (typeof analysis.title !== 'string') errors.push('title 必须是字符串。');
     if (typeof analysis.author !== 'string') errors.push('author 必须是字符串。');
-    validateStringArray(analysis.specificGenres, 'specificGenres');
-    validateStringArray(analysis.locations, 'locations');
-    validateStringArray(analysis.themes, 'themes');
-    validateStringArray(analysis.sourceChapterIds, 'sourceChapterIds');
-    validateStringArray(analysis.sourceChapterTitles, 'sourceChapterTitles');
+    validateStringArray(analysis.specificGenres, 'specificGenres', errors);
+    validateStringArray(analysis.locations, 'locations', errors);
+    validateStringArray(analysis.themes, 'themes', errors);
+    validateStringArray(analysis.sourceChapterIds, 'sourceChapterIds', errors);
+    validateStringArray(analysis.sourceChapterTitles, 'sourceChapterTitles', errors);
     if (typeof analysis.sourceExcerpt !== 'string' || analysis.sourceExcerpt.length > MAX_EVIDENCE_CHARS) {
         errors.push('sourceExcerpt 必须是最多 500 字的字符串。');
     }
@@ -853,9 +853,9 @@ export function validateNovelAnalysis(analysis: unknown): NovelAnalysisValidatio
         else validateConfidence(item.confidence, `recommendedEntryPoints[${index}].confidence`, errors);
     });
 
-    validateStringArray(analysis.contentWarnings, 'contentWarnings');
-    validateStringArray(analysis.missingInformation, 'missingInformation');
-    validateStringArray(analysis.analysisWarnings, 'analysisWarnings');
+    validateStringArray(analysis.contentWarnings, 'contentWarnings', errors);
+    validateStringArray(analysis.missingInformation, 'missingInformation', errors);
+    validateStringArray(analysis.analysisWarnings, 'analysisWarnings', errors);
     if (analysis.analysisWarnings?.length) warnings.push(...stringList(analysis.analysisWarnings, MAX_LIST_ITEMS, MAX_SHORT_TEXT_CHARS));
     if (Array.isArray(analysis.unsupportedMechanics) && analysis.unsupportedMechanics.length) {
         warnings.push('存在未注册机制，必须在接入组件前继续人工确认。');

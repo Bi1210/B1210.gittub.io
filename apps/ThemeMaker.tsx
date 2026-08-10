@@ -823,8 +823,8 @@ const ThemeMaker: React.FC = () => {
     }, [contrastScores]);
 
     const activeContrastScore = activeTab === 'ai' ? contrastScores.ai : contrastScores.user;
-    const showLowContrastWarning = activeTab !== 'css' && activeContrastScore.ratio < CONTRAST_LOW_THRESHOLD;
-    const showCombinedRisk = activeTab !== 'css'
+    const showLowContrastWarning = (activeTab as string) !== 'css' && activeContrastScore.ratio < CONTRAST_LOW_THRESHOLD;
+    const showCombinedRisk = (activeTab as string) !== 'css'
         && (activeStyle.backgroundImageOpacity ?? 0) >= HIGH_BG_IMAGE_OPACITY
         && activeContrastScore.ratio < CONTRAST_LOW_THRESHOLD;
 
@@ -1163,7 +1163,7 @@ const ThemeMaker: React.FC = () => {
                 </div>
 
                 {/* Conditional Sub-Tool Tabs */}
-                {activeTab !== 'css' && (
+                {(activeTab as string) !== 'css' && (
                     <div className="flex px-6 border-b border-slate-100 mb-2 overflow-x-auto no-scrollbar">
                         <button onClick={() => requestToolSectionSwitch('base')} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all shrink-0 ${toolSection === 'base' ? 'border-primary text-primary' : 'border-transparent text-slate-400'}`}>基础样式</button>
                         <button onClick={() => requestToolSectionSwitch('sticker')} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all shrink-0 ${toolSection === 'sticker' ? 'border-primary text-primary' : 'border-transparent text-slate-400'}`}>气泡贴纸</button>
@@ -1257,7 +1257,7 @@ const ThemeMaker: React.FC = () => {
                     )}
 
                     {/* --- BASE STYLE TOOLS --- */}
-                    {activeTab !== 'css' && toolSection === 'base' && (
+                    {(activeTab as string) !== 'css' && toolSection === 'base' && (
                         <div className="space-y-6 animate-fade-in"> 
                             {/* Name Input (Only on Base) */}
                             <div>
@@ -1295,7 +1295,7 @@ const ThemeMaker: React.FC = () => {
                                 </div>
                             </div>
 
-                            {activeTab !== 'css' && (
+                            {(activeTab as string) !== 'css' && (
                                 <div className={`rounded-xl border p-3 ${showLowContrastWarning ? 'border-amber-200 bg-amber-50/80' : 'border-emerald-200 bg-emerald-50/70'}`}>
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                         <div>
@@ -1458,7 +1458,7 @@ const ThemeMaker: React.FC = () => {
                     )}
 
                     {/* --- STICKER TOOLS --- */}
-                    {activeTab !== 'css' && toolSection === 'sticker' && (
+                    {(activeTab as string) !== 'css' && toolSection === 'sticker' && (
                         <div className="space-y-6 animate-fade-in">
                             <div onClick={() => decorationInputRef.current?.click()} className="cursor-pointer group relative h-20 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-400 hover:border-primary/50 hover:text-primary transition-all">
                                  {activeStyle.decoration ? <img src={activeStyle.decoration} className="h-10 w-10 object-contain" /> : <span className="text-xs font-bold">+ 上传气泡角标/贴纸</span>}
@@ -1501,7 +1501,7 @@ const ThemeMaker: React.FC = () => {
                     )}
 
                     {/* --- AVATAR TOOLS --- */}
-                    {activeTab !== 'css' && toolSection === 'avatar' && (
+                    {(activeTab as string) !== 'css' && toolSection === 'avatar' && (
                         <div className="space-y-6 animate-fade-in">
                             <div onClick={() => avatarDecoInputRef.current?.click()} className="cursor-pointer group relative h-20 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-400 hover:border-primary/50 hover:text-primary transition-all">
                                  {activeStyle.avatarDecoration ? <img src={activeStyle.avatarDecoration} className="h-10 w-10 object-contain" /> : <span className="text-xs font-bold">+ 上传头像框/挂件</span>}

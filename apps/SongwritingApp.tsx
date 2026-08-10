@@ -429,11 +429,7 @@ const SongwritingApp: React.FC = () => {
                 id: `line-${Date.now()}`,
                 authorId: 'user',
                 content: userMessage.trim(),
-                section: currentSection,
-                timestamp: Date.now(),
-            };
-            setPendingLines(prev => [...prev, newLine]);
-        } else if (userMessage.trim()) {
+                section: currentSection as SongLine['section'],
             // Discussion is a real, persistent conversation, but it never mutates lyrics.
             const userComment: SongComment = {
                 id: `chat-user-${requestTime}`,
@@ -559,8 +555,7 @@ const SongwritingApp: React.FC = () => {
                                     id: `line-${baseTime}-ex${i}`,
                                     authorId: collaborator.id,
                                     content: parsed.example_lines[i],
-                                    section: currentSection,
-                                    annotation: '示范参考',
+                                    section: currentSection as SongLine['section'],
                                     timestamp: baseTime + 10 + i,
                                 });
                             }

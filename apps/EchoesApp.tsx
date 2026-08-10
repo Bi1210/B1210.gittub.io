@@ -2490,9 +2490,9 @@ const EchoesApp: React.FC = () => {
                 </div>
             )}
             
-            {lastTurn?.choices?.length > 0 && !lastTurn.endingTriggered && (
+            {(lastTurn?.choices?.length ?? 0) > 0 && !lastTurn.endingTriggered && (
                 <div className="mb-2 space-y-1.5">
-                    {lastTurn.choices.map((choice: any) => (
+                    {lastTurn.choices?.map((choice: any) => (
                         <button key={choice.id} disabled={choice.disabled || generating} onClick={() => void playAction(choice.label)} className="w-full flex items-center justify-between text-left p-3 rounded-xl border transition disabled:opacity-40" style={{ borderColor: `${ui.accent}30`, background: `${palette.panel}e0` }}>
                             <div className="flex-1 min-w-0">
                                 <span className="block text-[12.5px] font-bold" style={{ color: ui.accent }}>{choice.label}</span>

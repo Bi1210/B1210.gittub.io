@@ -2616,6 +2616,23 @@ export const DB = {
       });
   },
 
+  patchApiRequestCapture: async (id: string, patch: Record<string, unknown>): Promise<boolean> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return false;
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_API_CALL_LOG, 'readwrite');
+          const store = tx.objectStore(STORE_API_CALL_LOG);
+          const req = store.get('one-shot-capture');
+          req.onsuccess = () => {
+              const existing = req.result;
+              if (!existing || existing.capture?.id !== id) { resolve(false); return; }
+              store.put({ id: 'one-shot-capture', capture: { ...existing.capture, ...patch } });
+              resolve(true);
+          };
+          req.onerror = () => reject(req.error);
+      });
+  },
+
   // 导入备份用：直接写回一条 vr_settings 原始记录（{id, ...}）。
   saveVRSettingRecord: async (record: any): Promise<void> => {
       if (!record || !record.id) return;

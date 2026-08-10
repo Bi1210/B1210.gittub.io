@@ -806,7 +806,7 @@ ${previousGuestbook}
                             const nextState = { ...stateRef.current, shop: updater(stateRef.current.shop) };
                             stateRef.current = nextState;
                             setState(nextState);
-                            await DB.saveBankState(nextState);
+                            void DB.saveBankState(nextState);
                         }}
                         onStaffClick={handleOpenStaffEdit}
                         onOpenGuestbook={() => { setShowGuestbook(true); trackEvent('打开店铺情报志'); }}

@@ -255,5 +255,5 @@ export function getStoredNovelProfile(raw: unknown): EchoesNovelProfile | undefi
     if (!isRecord(raw) || !isRecord(raw.novelProfile)) return undefined;
     const sanitized = sanitizeEchoesWorldForStorage(raw);
     if (!isRecord(sanitized) || !isRecord(sanitized.novelProfile)) return undefined;
-    return sanitized.novelProfile as EchoesNovelProfile;
+    return sanitized.novelProfile as unknown as EchoesNovelProfile;
 }

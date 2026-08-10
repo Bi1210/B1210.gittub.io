@@ -183,7 +183,7 @@ export function filterNovelHardFactsToLock(
     const facts: string[] = [];
     const state = profileState(profile);
     const hasProfile = state === 'valid';
-    const acceptedIds = hasProfile ? ruleIds(profile) : new Set<string>();
+    const acceptedIds = hasProfile ? ruleIds(profile!) : new Set<string>();
     if (state === 'invalid') warnings.push('小说资料无效或已隔离，本轮禁止新增任何硬事实。');
     const truncated = entries.length > limits.maxFacts;
     if (parsedFacts === undefined || (!Array.isArray(parsedFacts) && !isRecord(parsedFacts))) warnings.push('hardFactsToLock 不是数组，已按空列表处理。');

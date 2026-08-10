@@ -103,7 +103,7 @@ export default defineConfig({
         secure: true,
         rewrite: () => '/v1/t2a_v2',
         // Route to 国服 / 海外 based on X-MiniMax-Region header sent by the client.
-        router: (req) => {
+        router: (req: { headers: Record<string, string | string[] | undefined> }) => {
           const region = String(req.headers['x-minimax-region'] || '').toLowerCase();
           return region === 'overseas' ? 'https://api.minimax.io' : 'https://api.minimaxi.com';
         },
@@ -113,7 +113,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: () => '/v1/get_voice',
-        router: (req) => {
+        router: (req: { headers: Record<string, string | string[] | undefined> }) => {
           const region = String(req.headers['x-minimax-region'] || '').toLowerCase();
           return region === 'overseas' ? 'https://api.minimax.io' : 'https://api.minimaxi.com';
         },
@@ -123,7 +123,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: () => '/v1/music_generation',
-        router: (req) => {
+        router: (req: { headers: Record<string, string | string[] | undefined> }) => {
           const region = String(req.headers['x-minimax-region'] || '').toLowerCase();
           return region === 'overseas' ? 'https://api.minimax.io' : 'https://api.minimaxi.com';
         },

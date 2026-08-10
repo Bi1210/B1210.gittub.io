@@ -184,15 +184,15 @@ describe('Echoes novel context assembly', () => {
     });
 
     it('assembleNovelContext 可以组装预选片段并跳过重复大段正文', () => {
-        const chapter = chapter('chapter-2');
+        const ch = chapter('chapter-2');
         const segment = {
             kind: 'chapter' as const,
-            chapterId: chapter.id,
-            chapterIndex: chapter.index,
-            chapterTitle: chapter.title,
-            startOffset: chapter.startOffset,
-            endOffset: chapter.endOffset,
-            text: document.normalizedText.slice(chapter.startOffset, chapter.endOffset),
+            chapterId: ch.id,
+            chapterIndex: ch.index,
+            chapterTitle: ch.title,
+            startOffset: ch.startOffset,
+            endOffset: ch.endOffset,
+            text: document.normalizedText.slice(ch.startOffset, ch.endOffset),
             score: 10,
             reason: 'test',
         };

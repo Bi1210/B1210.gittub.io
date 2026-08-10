@@ -31,7 +31,7 @@ interface ChatHeaderProps {
     headerAlign?: 'left' | 'center';
     headerDensity?: 'compact' | 'default' | 'airy';
     statusStyle?: 'subtle' | 'pill' | 'dot';
-    chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
+    chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel' | 'liquidglass';
 }
 
 const normalizeIntensity = (n: number | undefined | null): 1 | 2 | 3 => {
