@@ -430,6 +430,10 @@ const SongwritingApp: React.FC = () => {
                 authorId: 'user',
                 content: userMessage.trim(),
                 section: currentSection as SongLine['section'],
+                timestamp: Date.now(),
+            };
+            setPendingLines(prev => [...prev, newLine]);
+        } else if (userMessage.trim()) {
             // Discussion is a real, persistent conversation, but it never mutates lyrics.
             const userComment: SongComment = {
                 id: `chat-user-${requestTime}`,
