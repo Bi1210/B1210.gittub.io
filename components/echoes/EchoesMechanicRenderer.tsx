@@ -3,6 +3,7 @@ import { CaretDown, Check, CircleNotch, LockKey, Sparkle, WarningCircle } from '
 import type { EchoesMechanicActionRequest } from '../../utils/echoesMechanicActionsTypes';
 import { getMechanicDefinition } from '../../utils/echoesMechanics';
 import type {
+    EchoesCastCharacterData,
     EchoesCountdownData,
     EchoesDanmakuItem,
     EchoesEvidenceEntry,
@@ -10,6 +11,7 @@ import type {
     EchoesInventoryItem,
     EchoesLeaderboardEntry,
     EchoesLiveRoomData,
+    EchoesLoreEntryData,
     EchoesMechanicAction,
     EchoesMechanicInstance,
     EchoesRelationshipEntry,

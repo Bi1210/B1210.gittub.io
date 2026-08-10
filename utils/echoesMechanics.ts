@@ -1,15 +1,17 @@
 import {
     ECHOES_MECHANICS_SCHEMA_VERSION,
+    type EchoesCastCharacterData,
+    type EchoesCastFieldEntry,
+    type EchoesCastSection,
     type EchoesCountdownData,
     type EchoesDanmakuItem,
     type EchoesEventCardData,
     type EchoesEvidenceEntry,
     type EchoesGenericPanelData,
-    type EchoesCastCharacter,
     type EchoesInventoryItem,
     type EchoesLeaderboardEntry,
     type EchoesLiveRoomData,
-    type EchoesLoreEntry,
+    type EchoesLoreEntryData,
     type EchoesMechanicAction,
     type EchoesMechanicActionEffect,
     type EchoesMechanicData,
@@ -54,10 +56,10 @@ export const ECHOES_MECHANIC_CATALOG: readonly EchoesMechanicDefinition[] = [
     { kind: 'script_preview', label: '剧本/台本', purpose: '拍戏、排练、任务剧本或角色台词预览', allowedTriggers: ['scene', 'choice', 'manual'], interactive: false },
     { kind: 'evidence_board', label: '证据板', purpose: '线索、证词、文件和证据关联', allowedTriggers: ['scene', 'event', 'manual'], interactive: true },
     { kind: 'resource_panel', label: '资源面板', purpose: '生存资源、材料、货币或可消耗数值', allowedTriggers: ['scene', 'event', 'manual'], interactive: false },
+    { kind: 'cast_roster', label: '人物档案', purpose: '单个角色的结构化档案条目；每个角色一个实例，AI 用 upsert/remove 精确增删单个角色', allowedTriggers: ['always'], interactive: false },
+    { kind: 'lore_codex', label: '世界志条目', purpose: '单条世界设定/地点/势力/纪年/名词条目；每条一个实例，分类由 AI 自行判断', allowedTriggers: ['always'], interactive: false },
     { kind: 'event_card', label: '突发事件', purpose: '需要玩家回应的事件通知或临时危机', allowedTriggers: ['scene', 'choice', 'event'], interactive: true },
     { kind: 'generic_panel', label: '自定义面板', purpose: '已注册组件无法精确表达时的安全结构化面板', allowedTriggers: ['scene', 'event', 'manual'], interactive: false },
-    { kind: 'cast_roster', label: '人物档案', purpose: '"人物"tab 的单个角色结构化档案，AI 用稳定 id 精确增删', allowedTriggers: ['always'], interactive: false },
-    { kind: 'lore_codex', label: '世界志条目', purpose: '"世界志"tab 的单条地点/势力/纪年事件/名词/道具条目', allowedTriggers: ['always'], interactive: false },
 ];
 
 const CATALOG = new Map(ECHOES_MECHANIC_CATALOG.map(item => [item.kind, item]));
@@ -336,36 +338,46 @@ const normalizeData = (kind: EchoesMechanicKind, rawData: unknown): EchoesMechan
             return { kind, data: { fields } };
         }
         case 'cast_roster': {
-            // AI 有时会按 { character: {...} } 嵌套，有时会把字段直接平铺在 data 里；两种形状都接受。
-            const value = raw.character && typeof raw.character === 'object' ? raw.character as Record<string, unknown> : raw;
-            const fields = array(value.fields, 40).map((item) => {
-                const field = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-                return { label: text(field.label, 100), value: text(field.value, 600) };
-            }).filter(field => field.label);
-            const sections = array(value.sections, 20).map((item) => {
-                const section = item && typeof item === 'object' ? item as Record<string, unknown> : {};
-                return { heading: text(section.heading, 100), body: text(section.body, 4000) };
-            }).filter(section => section.heading && section.body);
-            const character = {
-                name: text(value.name, 100),
-                ...(text(value.aliasTitle, 100) ? { aliasTitle: text(value.aliasTitle, 100) } : {}),
-                ...(text(value.role, 300) ? { role: text(value.role, 300) } : {}),
-                isPlayer: value.isPlayer === true,
+            // Support both flat shape and nested `character` wrapper from AI.
+            const src = raw.character && typeof raw.character === 'object' && !Array.isArray(raw.character)
+                ? raw.character as Record<string, unknown>
+                : raw;
+            const fields: EchoesCastFieldEntry[] = array(src.fields, 80).map(item => {
+                const f = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+                const label = text(f.label, 100);
+                const value = text(f.value ?? f.content ?? f.val, 600);
+                return label && value ? { label, value } : null;
+            }).filter((item): item is EchoesCastFieldEntry => !!item);
+            const sections: EchoesCastSection[] = array(src.sections, 30).map(item => {
+                const s = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+                const heading = text(s.heading ?? s.title, 200);
+                const body = text(s.body ?? s.content ?? s.text, 3000);
+                return heading && body ? { heading, body } : null;
+            }).filter((item): item is EchoesCastSection => !!item);
+            const character: EchoesCastCharacterData = {
+                name: text(src.name ?? src.title, 200) || '未命名角色',
+                ...(text(src.aliasTitle ?? src.alias, 200) ? { aliasTitle: text(src.aliasTitle ?? src.alias, 200) } : {}),
+                ...(text(src.role ?? src.identity, 500) ? { role: text(src.role ?? src.identity, 500) } : {}),
+                isPlayer: bool(src.isPlayer),
                 fields,
                 sections,
-                tags: stringArray(value.tags, 12, 50),
+                tags: stringArray(src.tags, 20, 100),
             };
             return { kind, character };
         }
         case 'lore_codex': {
-            const value = raw.entry && typeof raw.entry === 'object' ? raw.entry as Record<string, unknown> : raw;
-            const category = ['place', 'faction', 'timeline', 'concept', 'item', 'other'].includes(value.category as string) ? value.category as EchoesLoreEntry['category'] : 'other';
-            const entry = {
-                term: text(value.term, 150),
+            const src = raw.entry && typeof raw.entry === 'object' && !Array.isArray(raw.entry)
+                ? raw.entry as Record<string, unknown>
+                : raw;
+            const LORE_CATS = new Set(['place', 'faction', 'timeline', 'concept', 'item', 'other']);
+            const rawCat = text(src.category, 50);
+            const category = LORE_CATS.has(rawCat) ? rawCat as EchoesLoreEntryData['category'] : 'other';
+            const entry: EchoesLoreEntryData = {
+                term: text(src.term ?? src.title ?? src.name, 300) || '未命名条目',
                 category,
-                summary: text(value.summary, 500),
-                ...(text(value.details, 4000) ? { details: text(value.details, 4000) } : {}),
-                tags: stringArray(value.tags, 12, 50),
+                summary: text(src.summary ?? src.description, 800),
+                ...(text(src.details, 3000) ? { details: text(src.details, 3000) } : {}),
+                tags: stringArray(src.tags, 20, 100),
             };
             return { kind, entry };
         }

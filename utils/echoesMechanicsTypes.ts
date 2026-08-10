@@ -196,25 +196,28 @@ export interface EchoesUnsupportedMechanicData {
     summary: string;
 }
 
-/** "人物"tab 的单个字段，例如 { label: '年龄', value: '22' }；由 AI 自由定义 label，不绑定具体世界观。 */
+/**
+ * 人物档案是"一个角色一个 mechanic 实例"，AI 通过 upsert/remove patch 精确增删单个角色，
+ * 不再靠正则猜测自由文本段落边界。label/value、heading/body 均由 AI 自由命名，
+ * 不预设任何具体世界观的字段名（如"错误值"），保持世界观无关。
+ */
 export interface EchoesCastFieldEntry {
+    /** 简短属性标签，例如"年龄""身份""阵营"；由 AI 按该世界的档案习惯自行命名。 */
     label: string;
     value: string;
 }
 
-/** "人物"tab 的一个正文段落，例如角色小传里的"进入万象前/进入万象后"分段。 */
 export interface EchoesCastSection {
+    /** 较长的小传/分段标题，例如"背景""进入前""进入后"；不预设固定分段集合。 */
     heading: string;
     body: string;
 }
 
-/**
- * 单个角色的结构化档案。每个角色对应一个独立的 cast_roster mechanic 实例，
- * 靠稳定 id（AI 用姓名生成的 slug）精确增删，不再靠猜测自由文本的段落边界。
- */
-export interface EchoesCastCharacter {
+export interface EchoesCastCharacterData {
     name: string;
+    /** 称号/别名，可选。 */
     aliasTitle?: string;
+    /** 一句话身份定位。 */
     role?: string;
     isPlayer: boolean;
     fields: EchoesCastFieldEntry[];
@@ -222,14 +225,13 @@ export interface EchoesCastCharacter {
     tags: string[];
 }
 
-/** 世界志条目的分类，由 AI 直接判断，不是关键词猜测。 */
 export type EchoesLoreCategory = 'place' | 'faction' | 'timeline' | 'concept' | 'item' | 'other';
 
 /**
- * 单条世界志条目（地点/势力/纪年事件/名词/道具等）。每条对应一个独立的
- * lore_codex mechanic 实例，靠稳定 id 精确增删。
+ * 世界志条目同样是"一条一个 mechanic 实例"；category 由 AI 自行判断，
+ * 不用关键词规则猜测分类。
  */
-export interface EchoesLoreEntry {
+export interface EchoesLoreEntryData {
     term: string;
     category: EchoesLoreCategory;
     summary: string;
@@ -252,10 +254,10 @@ export type EchoesMechanicData =
     | { kind: 'script_preview'; data: EchoesScriptPreviewData }
     | { kind: 'evidence_board'; entries: EchoesEvidenceEntry[] }
     | { kind: 'resource_panel'; entries: EchoesResourceEntry[] }
+    | { kind: 'cast_roster'; character: EchoesCastCharacterData }
+    | { kind: 'lore_codex'; entry: EchoesLoreEntryData }
     | { kind: 'event_card'; data: EchoesEventCardData }
     | { kind: 'generic_panel'; data: EchoesGenericPanelData }
-    | { kind: 'cast_roster'; character: EchoesCastCharacter }
-    | { kind: 'lore_codex'; entry: EchoesLoreEntry }
     | { kind: 'unsupported'; data: EchoesUnsupportedMechanicData };
 
 export interface EchoesMechanicInstance {
