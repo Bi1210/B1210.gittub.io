@@ -2368,6 +2368,8 @@ export interface CharacterProfile {
    *  属美化类本地偏好：随完整备份走，但角色卡分享时剥离（见 utils/characterCard.ts）。 */
   chatFineTune?: ChatFineTuneOverride;
   chatBackground?: string;
+  /** 日程卡色相角度（0-360），用于 ScheduleCard / ScheduleHomeWidget 配色。 */
+  themeColor?: number;
   contextLimit?: number;
   /**
    * AI 原文读取范围策略：
@@ -2619,7 +2621,6 @@ export interface CharacterProfile {
   thinkingChainCustomColors?: {
     bg?: string;       // 卡片背景
     accent?: string;   // 边框/标题点缀
-    themeColor?: number; // Schedule Card 色相角度（0-360）
     text?: string;     // 正文颜色
   };
   /** 用户追加的思考提示词（不替换原生，只在最后追加一段「用户额外要求」） */
