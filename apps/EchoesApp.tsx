@@ -25,6 +25,7 @@ import { buildEchoesNovelRuntimeContext } from '../utils/echoesNovelRuntime';
 import { buildEchoesTurnOutputInstruction, parseEchoesTurnOutput } from '../utils/echoesTurnProtocol';
 import { sanitizeEchoesWorldForStorage } from '../utils/echoesWorldStorage';
 import { analyzeNovelDocument, prepareNovelAnalysis } from '../utils/echoesNovelWorkflow';
+import { parseEpubNovel } from '../utils/echoesNovelParser';
 import { createCrossoverConfigDraft, setCrossoverConfigConfirmed } from '../utils/echoesCrossover';
 import type { EchoesCrossoverConfig, EchoesCrossoverRole, EchoesCanonPolicy, EchoesSpoilerMode } from '../utils/echoesCrossoverTypes';
 import type { ParsedNovel } from '../utils/echoesNovelTypes';
