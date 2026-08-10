@@ -199,16 +199,19 @@ const GameMarkdown: React.FC<{ content: string, theme: any, customStyle?: { font
 const GameApp: React.FC = () => {
     const { closeApp, characters, userProfile, apiConfig, addToast, updateCharacter, characterGroups, registerBackHandler } = useOS();
 
-    // 侧滑/返回键内部层级处理：
-    // create / play 页 → 返回大厅；大厅不注册，侧滑正常退出 App
+    // 侧滑/返回键内部层级处理：用 ref 持有最新 view，避免 effect 时序问题。
+    // create / play 页 → 返回大厅；大厅返回 false，让侧滑正常退出 App。
+    const viewRef = useRef(view);
+    viewRef.current = view;
     useEffect(() => {
-        if (view === 'lobby') return;
         return registerBackHandler(() => {
+            if (viewRef.current === 'lobby') return false; // 大厅：让外层处理（退出 App）
             setView('lobby');
             setActiveGame(null);
             return true;
         });
-    }, [view, registerBackHandler]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [registerBackHandler]); // 只注册一次，通过 ref 读取最新 view
     const [view, setView] = useState<'lobby' | 'create' | 'play'>('lobby');
     const [games, setGames] = useState<GameSession[]>([]);
     const [activeGame, setActiveGame] = useState<GameSession | null>(null);
