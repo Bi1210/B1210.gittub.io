@@ -231,16 +231,20 @@ const VRWorldApp: React.FC = () => {
 
     const enabledCount = characters.filter(c => c.vrState?.enabled).length;
 
-    // 返回键：有弹层先关弹层（阅读器/房间/上传/捏人），而不是直接退回桌面
+    // 返回键：有弹层先关弹层，而不是直接退回桌面。用 ref 持有最新状态，只注册一次。
+    const vrBackStateRef = useRef({ chibiEditChar: null as any, chibiEditUser: false, showUpload: false, readerJump: null as any, readerNovel: null as any, enterRoom: null as any });
+    useEffect(() => { vrBackStateRef.current = { chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom }; });
     useEffect(() => registerBackHandler(() => {
-        if (chibiEditChar) { setChibiEditChar(null); setPendingEnable(null); return true; }
-        if (chibiEditUser) { setChibiEditUser(false); return true; }
-        if (showUpload) { setShowUpload(false); return true; }
-        if (readerJump) { setReaderJump(null); return true; }
-        if (readerNovel) { setReaderNovel(null); return true; }
-        if (enterRoom) { setEnterRoom(null); return true; }
-        return false; // 无弹层 → 交回默认（关闭 App）
-    }), [registerBackHandler, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
+        const s = vrBackStateRef.current;
+        if (s.chibiEditChar) { setChibiEditChar(null); setPendingEnable(null); return true; }
+        if (s.chibiEditUser) { setChibiEditUser(false); return true; }
+        if (s.showUpload) { setShowUpload(false); return true; }
+        if (s.readerJump) { setReaderJump(null); return true; }
+        if (s.readerNovel) { setReaderNovel(null); return true; }
+        if (s.enterRoom) { setEnterRoom(null); return true; }
+        return false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [registerBackHandler]);
 
     // 从动态/批注点回原文：peek 模式打开阅读器跳到该段，不动用户书签
     const jumpToAnnotation = useCallback((novelId: string | undefined, segIdx: number) => {
