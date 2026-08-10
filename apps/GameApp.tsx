@@ -197,7 +197,18 @@ const GameMarkdown: React.FC<{ content: string, theme: any, customStyle?: { font
 };
 
 const GameApp: React.FC = () => {
-    const { closeApp, characters, userProfile, apiConfig, addToast, updateCharacter, characterGroups } = useOS();
+    const { closeApp, characters, userProfile, apiConfig, addToast, updateCharacter, characterGroups, registerBackHandler } = useOS();
+
+    // 侧滑/返回键内部层级处理：
+    // create / play 页 → 返回大厅；大厅不注册，侧滑正常退出 App
+    useEffect(() => {
+        if (view === 'lobby') return;
+        return registerBackHandler(() => {
+            setView('lobby');
+            setActiveGame(null);
+            return true;
+        });
+    }, [view, registerBackHandler]);
     const [view, setView] = useState<'lobby' | 'create' | 'play'>('lobby');
     const [games, setGames] = useState<GameSession[]>([]);
     const [activeGame, setActiveGame] = useState<GameSession | null>(null);
