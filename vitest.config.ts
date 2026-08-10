@@ -11,5 +11,8 @@ export default defineConfig({
     ],
     // 排除 React 组件 / 浏览器集成测 (没装 jsdom)
     exclude: ['node_modules', '**/node_modules/**', '.worktrees', 'dist'],
+    // iSH 不支持 worker_threads/多进程，强制单线程
+    threads: false,
+    isolate: false,
   },
 });
