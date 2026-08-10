@@ -171,16 +171,96 @@ const inferAdaptiveUI = (worldSetting: string): Partial<AdaptiveUIHint> | null =
 const modeLabel = (mode: EchoesMode) => MODE_META[mode]?.label || mode;
 
 /** 仅用于关系页的轻量人物索引：不改变存档结构，也不把 AI 猜测当成硬事实。 */
+/**
+ * 人物设定字段是自由文本（无结构化 schema），AI 输出排版差异很大：常见问题包括
+ * “标签独占一行、值另起一行”（如 “姓名：\n\n青姒”）和“基础资料”一类无冒号的小节标题。
+ * 逐行硬拆会把同一个人的十几个字段拆成十几张碎片卡片（见用户反馈）。
+ * 这里用两步启发式处理，不改数据结构（cast 仍是纯字符串）：
+ *   1) 合并“裸标签行 + 下一行是值”为一条 “标签：值”；
+ *   2) 用“同一标签在当前分组内重复出现”作为新人物开始的边界信号——
+ *      多人档案里姓名/年龄/性别等字段会重复出现，天然构成分割点，
+ *      不依赖硬编码某个具体字段名，对任意人物 schema 都适用。
+ */
 const parseCastEntries = (cast: string, playerIdentity: string): Array<{ name: string; detail: string; isPlayer?: boolean }> => {
     const result: Array<{ name: string; detail: string; isPlayer?: boolean }> = [];
     if (playerIdentity.trim()) {
-        const firstLine = playerIdentity.trim().split(/[\\n。；;]/)[0].trim();
+        const firstLine = playerIdentity.trim().split(/[\n。；;]/)[0].trim();
         result.push({ name: firstLine.slice(0, 24) || '玩家', detail: playerIdentity.trim(), isPlayer: true });
     }
-    cast.split(/[\\n]+/).map(line => line.trim()).filter(Boolean).slice(0, 24).forEach((line, index) => {
-        const match = line.match(/^([^：:—–-]{1,24})[：:—–-](.+)$/);
-        result.push({ name: (match?.[1] || line.split(/[，,。；;]/)[0] || `人物 ${index + 1}`).trim().slice(0, 24), detail: (match?.[2] || line).trim() });
+
+    const rawLines = cast.split(/[\n]+/).map(line => line.trim()).filter(Boolean);
+    const labelValueRe = /^([^：:—–-]{1,24})[：:—–-]\s*(.+)$/;
+    const bareLabelRe = /^([^\s：:—–-]{1,12})[：:]\s*$/;
+
+    // 第一步：合并“裸标签行 + 下一行是值”为一条 attribute（{label?, text}）。
+    type Attr = { label: string | null; text: string };
+    const attrs: Attr[] = [];
+    for (let i = 0; i < rawLines.length; i++) {
+        const line = rawLines[i];
+        const bareMatch = line.match(bareLabelRe);
+        if (bareMatch && i + 1 < rawLines.length && !rawLines[i + 1].match(bareLabelRe) && !rawLines[i + 1].match(labelValueRe)) {
+            attrs.push({ label: bareMatch[1], text: rawLines[i + 1] });
+            i++;
+            continue;
+        }
+        const lvMatch = line.match(labelValueRe);
+        if (lvMatch) {
+            attrs.push({ label: lvMatch[1].trim(), text: lvMatch[2].trim() });
+        } else {
+            attrs.push({ label: null, text: line });
+        }
+    }
+
+    // 第二步：按“同一标签重复出现”分组，每组视为一个人物。
+    // 区分两类标签：常见档案字段词（姓名/年龄/性别等，同一人物内会重复出现，用作分组边界）
+    // 与“标签本身就是人名”的旧式单行格式（如 “青姒：万象副本核心成员…”，每行天然是新的一个人）。
+    const FIELD_LABELS = new Set([
+        '姓名', '名字', '角色', '角色名', '人物', '编号', '称号', '定位', '年龄', '性别', '身份', '职业', '阵营',
+        '性格', '外貌', '外观', '背景', '技能', '能力', '天赋', '目标', '关系', '喜好', '厌恶', '弱点', '特点',
+        '简介', '描述', '备注', '称呼', '身高', '体重', '声音', '声线', '口癖', '座右铭', '信念', '立场',
+        '势力', '组织', '队伍', '职位', '等级', '属性', '称谓', '别名', '昵称', '出身', '种族', '职务',
+    ]);
+    const nameLabels = new Set(['姓名', '名字', '角色', '角色名', '人物']);
+
+    type Group = { name: string | null; lines: string[]; seenLabels: Set<string> };
+    const groups: Group[] = [];
+    let current: Group | null = null;
+
+    attrs.slice(0, 200).forEach(attr => {
+        const hasContent = !!current && current.lines.length > 0;
+        const isNewGroupBoundary = hasContent && !!attr.label && (
+            FIELD_LABELS.has(attr.label) ? current!.seenLabels.has(attr.label) : true
+        );
+        if (!current || isNewGroupBoundary) {
+            current = { name: null, lines: [], seenLabels: new Set() };
+            groups.push(current);
+        }
+        if (attr.label) {
+            current.lines.push(`${attr.label}：${attr.text}`);
+            if (FIELD_LABELS.has(attr.label)) {
+                current.seenLabels.add(attr.label);
+                if (!current.name && nameLabels.has(attr.label)) current.name = attr.text;
+            } else if (!current.name) {
+                // 标签不是已知字段词，大概率就是人名本身（旧式 “人名：描述” 单行格式）；
+                // 但若标签本身含空格（如 “青姒 编号” 这种同行混排多个字段的标题行），
+                // 只取空格前的第一个词作为人名，避免把后一个字段词也算进名字里。
+                current.name = attr.label.split(/\s+/)[0] || attr.label;
+            }
+        } else {
+            current.lines.push(attr.text);
+            // 分组内第一条无标签行，且分组尚无名字候选时，取首个词/短语当作人物名
+            // （常见于 “青姒” 单独一行开头，或 “青姒 编号：001 称号：…” 这类同行混排标题）。
+            if (!current.name && current.lines.length === 1) {
+                current.name = attr.text.split(/[\s，,。；;：:]/)[0] || attr.text;
+            }
+        }
     });
+
+    groups.slice(0, 24).forEach((group, index) => {
+        const name = (group.name || group.lines[0]?.split(/[，,。；;：:]/)[0] || `人物 ${index + 1}`).trim().slice(0, 24);
+        result.push({ name, detail: group.lines.join('\n').trim() });
+    });
+
     return result;
 };
 
