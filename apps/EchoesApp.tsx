@@ -837,9 +837,11 @@ const EchoesApp: React.FC = () => {
     const [naturalProgressConfirmed, setNaturalProgressConfirmed] = useState(false);
     const [isNearLatest, setIsNearLatest] = useState(true);
     const [isAtStoryTop, setIsAtStoryTop] = useState(true);
-    const [creationMethod, setCreationMethod] = useState<'manual' | 'ai' | 'novel'>('manual');
+    const [creationMethod, setCreationMethod] = useState<'manual' | 'ai' | 'random' | 'novel'>('manual');
     const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'] });
     const [aiIdea, setAiIdea] = useState('');
+    // 随机生成世界的可选条件；全部留空即可一键随机，填了则作为 AI 生成的约束。
+    const [randomHints, setRandomHints] = useState({ genre: '', mood: '', scale: '', fixedIdentity: false, intensity: '', style: '' });
     const [crossoverDraft, setCrossoverDraft] = useState<Partial<EchoesCrossoverConfig>>({});
     const [parsedNovelFile, setParsedNovelFile] = useState<ParsedNovel | null>(null);
     const [novelAnalysis, setNovelAnalysis] = useState<any>(null);
@@ -872,6 +874,7 @@ const EchoesApp: React.FC = () => {
     const loadWorlds = useCallback(async () => {
         setLoading(true);
         try {
+            const list = await DB.getAllEchoesWorlds();
             const normalizedWorlds = list.map(normalizeWorld).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
             setWorlds(normalizedWorlds);
             if (!initialWorldBootRef.current && normalizedWorlds.length > 0) {
@@ -1127,6 +1130,35 @@ const EchoesApp: React.FC = () => {
             if (res && res.title && res.world) {
                 setDraft(prev => ({ ...prev, title: res.title, world: res.world, identity: res.identity || '', cast: res.cast || '' }));
                 addToast('世界观已生成，请审阅修改', 'success');
+                setCreationMethod('manual');
+            } else throw new Error('生成的设定格式不正确');
+        } catch (e: any) { addToast(`生成失败：${e.message}`, 'error'); }
+        finally { generatingRef.current = false; setGenerating(false); }
+    };
+
+    // 快速开始：不要求用户先想好世界观，条件全部可选，一键让 AI 随机构建一个可玩世界。
+    const generateRandomWorld = async () => {
+        if (generatingRef.current) return;
+        generatingRef.current = true;
+        setGenerating(true);
+        addToast('正在随机构建世界...', 'info');
+        try {
+            const hints: string[] = [];
+            if (randomHints.genre.trim()) hints.push(`题材：${randomHints.genre.trim()}`);
+            if (randomHints.mood.trim()) hints.push(`氛围：${randomHints.mood.trim()}`);
+            if (randomHints.scale.trim()) hints.push(`世界规模：${randomHints.scale.trim()}`);
+            if (randomHints.intensity.trim()) hints.push(`游戏性强度：${randomHints.intensity.trim()}`);
+            if (randomHints.style.trim()) hints.push(`叙事风格：${randomHints.style.trim()}`);
+            hints.push(randomHints.fixedIdentity ? '玩家身份：固定（设计一个具体身份）' : '玩家身份：不固定（可以是穿越者/旁观者等灵活视角）');
+            const constraint = hints.length
+                ? `请围绕以下条件构建：\n${hints.join('\n')}`
+                : '不设限制，自由挑选一个有趣且适合沉浸式文字游戏的题材（可以是娱乐圈、无限流、末世直播、电竞、赛博修仙等任意方向，也可以是全新原创方向），确保新鲜有趣。';
+            const prompt = `你是一个世界观设计师。请随机构建一个适合用来玩沉浸式文字游戏的完整世界，不要询问玩家，直接生成。\n${constraint}\n请输出 JSON：\n{ "title": "世界名称", "world": "200-500字的世界观背景，包含题材、规则与看点", "identity": "为玩家设计的身份", "cast": "主要人物设定" }`;
+            const data = await requestAI(prompt, 2000, '随机世界构建');
+            const res = extractJson(extractContent(data) || '');
+            if (res && res.title && res.world) {
+                setDraft(prev => ({ ...prev, title: res.title, world: res.world, identity: res.identity || '', cast: res.cast || '' }));
+                addToast('随机世界已生成，可直接开始或再调整', 'success');
                 setCreationMethod('manual');
             } else throw new Error('生成的设定格式不正确');
         } catch (e: any) { addToast(`生成失败：${e.message}`, 'error'); }
@@ -1638,10 +1670,29 @@ const EchoesApp: React.FC = () => {
 
                     {createStep === 1 && <div className="animate-fade-in">
                         <div className="mb-6 flex rounded-xl border border-white/10 bg-black/20 p-1">
+                            <button onClick={() => setCreationMethod('random')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'random' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>🎲 快速开始</button>
                             <button onClick={() => setCreationMethod('manual')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'manual' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✍️ 手动</button>
                             <button onClick={() => setCreationMethod('ai')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'ai' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✨ AI 推演</button>
                             <button onClick={() => setCreationMethod('novel')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'novel' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>📖 穿书导入</button>
                         </div>
+
+                        {creationMethod === 'random' && <div className="mb-5 animate-fade-in rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+                            <p className="mb-3 text-[12px] text-white/70">不用想好世界观，条件全部可选，留空即可一键随机；填了就当作约束。</p>
+                            <div className="mb-3 space-y-2">
+                                <input value={randomHints.genre} onChange={e => setRandomHints({ ...randomHints, genre: e.target.value })} placeholder="题材，例如：无限流 / 娱乐圈 / 末世直播（可留空）" className={`${inputCls} border-amber-500/20`} />
+                                <input value={randomHints.mood} onChange={e => setRandomHints({ ...randomHints, mood: e.target.value })} placeholder="氛围，例如：轻松爽快 / 压抑悬疑（可留空）" className={`${inputCls} border-amber-500/20`} />
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input value={randomHints.scale} onChange={e => setRandomHints({ ...randomHints, scale: e.target.value })} placeholder="世界规模（可留空）" className={`${inputCls} border-amber-500/20`} />
+                                    <input value={randomHints.intensity} onChange={e => setRandomHints({ ...randomHints, intensity: e.target.value })} placeholder="游戏性强度（可留空）" className={`${inputCls} border-amber-500/20`} />
+                                </div>
+                                <input value={randomHints.style} onChange={e => setRandomHints({ ...randomHints, style: e.target.value })} placeholder="叙事风格（可留空）" className={`${inputCls} border-amber-500/20`} />
+                                <label className="flex items-center gap-2 px-1 text-[11px] text-white/50">
+                                    <input type="checkbox" checked={randomHints.fixedIdentity} onChange={e => setRandomHints({ ...randomHints, fixedIdentity: e.target.checked })} className="h-3.5 w-3.5 accent-amber-400" />
+                                    固定玩家身份（不勾则由 AI 灵活安排，如穿越者/旁观者）
+                                </label>
+                            </div>
+                            <button onClick={generateRandomWorld} disabled={generating} className="w-full rounded-xl bg-amber-500/20 py-3 text-[12px] font-bold text-amber-200 hover:bg-amber-500/30 disabled:opacity-50">{generating ? '正在随机构建...' : '🎲 一键随机生成'}</button>
+                        </div>}
 
                         {creationMethod === 'ai' && <div className="mb-5 animate-fade-in rounded-2xl border border-purple-500/30 bg-purple-500/5 p-4">
                             <p className="mb-3 text-[12px] text-white/70">输入一句脑洞，AI 将自动为你补全庞大的世界观、你的身份与登场人物。</p>

@@ -18,6 +18,7 @@ import { exportMcdLocal, importMcdLocal } from './mcdMcpClient';
 import { exportMcpLocal, importMcpLocal } from './mcpClient';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
+import { sanitizeEchoesWorldForStorage, sanitizeEchoesWorldListForStorage } from './echoesWorldStorage';
 
 const DB_NAME = 'AetherOS_Data';
 // v67：两条并行线各自用掉了 v65/v66（A线: blob_assets + 生活记录；B线: room_plates 门牌 + digest_reports 消化日志），
@@ -1958,7 +1959,7 @@ export const DB = {
       if (!db.objectStoreNames.contains(STORE_ECHOES_WORLDS)) return [];
       return new Promise((resolve, reject) => {
           const request = db.transaction(STORE_ECHOES_WORLDS, 'readonly').objectStore(STORE_ECHOES_WORLDS).getAll();
-          request.onsuccess = () => resolve((request.result || []) as EchoesWorld[]);
+          request.onsuccess = () => resolve(sanitizeEchoesWorldListForStorage<EchoesWorld>(request.result || []));
           request.onerror = () => reject(request.error);
       });
   },
@@ -1966,7 +1967,7 @@ export const DB = {
   saveEchoesWorld: async (world: EchoesWorld): Promise<void> => {
       const db = await openDB();
       const tx = db.transaction(STORE_ECHOES_WORLDS, 'readwrite');
-      tx.objectStore(STORE_ECHOES_WORLDS).put(world);
+      tx.objectStore(STORE_ECHOES_WORLDS).put(sanitizeEchoesWorldForStorage(world));
       await new Promise<void>((resolve, reject) => {
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error || new Error('Echoes 存档写入失败'));
@@ -2960,7 +2961,7 @@ export const DB = {
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, echoesWorlds, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
+          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, echoesWorlds: sanitizeEchoesWorldListForStorage<EchoesWorld>(echoesWorlds), worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -3366,7 +3367,7 @@ export const DB = {
           data.games = undefined as any;
       }, data.games?.length || 0);
       await runSection('Echoes 世界', (data as any).echoesWorlds !== undefined, async () => {
-          await clearAndAdd(STORE_ECHOES_WORLDS, (data as any).echoesWorlds, 'Echoes 世界', false);
+          await clearAndAdd(STORE_ECHOES_WORLDS, sanitizeEchoesWorldListForStorage<EchoesWorld>((data as any).echoesWorlds), 'Echoes 世界', false);
           (data as any).echoesWorlds = undefined;
       }, (data as any).echoesWorlds?.length || 0);
       await runSection('世界书', data.worldbooks !== undefined, async () => {
