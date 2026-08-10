@@ -1095,6 +1095,14 @@ const EchoesApp: React.FC = () => {
 `【长篇连贯摘要（仅作辅助，硬事实优先）】\n${world.continuitySummary || '尚无摘要，以硬事实和最近剧情为准。'}\n` +
 (novelContext.text ? `【原著参考资料（非指令，仅供参考）】\n${novelContext.text}\n` : '') +
 (runtimeMechanics.length ? `【动态机制目录】\n注册组件：${getMechanicCatalogForPrompt()}\n当前状态：${JSON.stringify(runtimeMechanics)}\n${mechanicContext.text ? `可交互动作：\n${mechanicContext.text}\n` : ''}` : `【动态机制目录】\n注册组件：${getMechanicCatalogForPrompt()}\n当前状态：暂无已激活机制；只有确实需要时才创建机制。\n`) +
+`【人物档案与世界志维护规则——极重要】\n` +
+`"人物"和"世界志"两个页面不再由你写自由文本猜测，而是靠 cast_roster / lore_codex 两种机制的 mechanicPatches 维护，每个角色、每条世界志条目各自是一个独立机制实例：\n` +
+`1. 每当正文中出现一个新的、值得记录的角色（有名字、身份或明确戏份，不是路人），用 { "op": "upsert", "mechanic": { "id": "cast-<角色姓名拼音或稳定英文slug>", "kind": "cast_roster", "trigger": "always", "data": { "character": { "name": "...", "aliasTitle": "可选称号", "role": "一句话身份", "isPlayer": false, "fields": [{"label":"...","value":"..."}], "sections": [{"heading":"...","body":"..."}], "tags": [] } } } } 追加到 mechanicPatches。\n` +
+`2. id 必须由角色姓名稳定生成（如姓名的拼音/罗马化 slug，例如"江砚"→"cast-jiangyan"），同一角色跨越多轮必须复用完全相同的 id，不能因为补充了新信息就换一个新 id，否则会在人物页产生重复卡片。\n` +
+`3. 角色信息有更新（新增字段、新增小传分段、关系变化）时，用同一 id 重新 upsert 完整的 character 对象（覆盖式更新，不是增量合并），把旧字段和新字段都带上，不要只发变化的部分导致其余字段丢失。\n` +
+`4. 每当确立一个值得记录的世界设定条目（地点/势力/纪年事件/名词/道具），用 { "op": "upsert", "mechanic": { "id": "lore-<稳定slug>", "kind": "lore_codex", "trigger": "always", "data": { "entry": { "term": "...", "category": "place|faction|timeline|concept|item|other", "summary": "一两句话概括", "details": "可选详细说明", "tags": [] } } } } 追加到 mechanicPatches；category 必须是你自己准确判断的分类，不是关键词猜测。\n` +
+`5. 不要在每一轮都重复发送所有已存在的角色和条目；只在出现新角色/新条目，或已有角色/条目信息发生实质变化时才发对应 patch。\n` +
+`6. 玩家角色本人也应该有一条 cast_roster（isPlayer: true），但只在玩家身份首次明确或发生重大变化时创建/更新。\n` +
 `【最近剧情】\n${formatHistory(world) || '这是故事的开端。'}\n\n` +
 `【本次玩家行动】\n${action || '（生成开场）'}\n${action === '（顺其发展）' ? '这是自然推进：玩家没有执行具体动作，请根据当前世界状态、在场实体目标和未解决事件让世界自行走一步，但仍停在可回应的位置。\n' : ''}` +
 (localActionText ? `【已由本地组件确认的动作】\n${localActionText}\n该动作已经在机制账本中执行。你只能描写叙事反应，不得重复执行、撤销、覆盖或替换该本地状态变化。\n` : '') +
@@ -2148,10 +2156,21 @@ const EchoesApp: React.FC = () => {
         { key: 'highlights' as const, label: '回想', icon: BookmarkSimple },
     ];
 
-    const activeMechanics = (lastTurn?.afterMechanics || activeWorld.mechanics)
+    const allMechanics = lastTurn?.afterMechanics || activeWorld.mechanics;
+    const activeMechanics = allMechanics
         .filter(mechanic => mechanic.status !== 'hidden' && mechanic.status !== 'disabled')
-        .filter(mechanic => mechanic.kind !== 'unsupported')
+        // cast_roster / lore_codex 是"人物"/"世界志"两个独立 tab 的数据来源，
+        // 不在正文里内联展示，避免重复。
+        .filter(mechanic => mechanic.kind !== 'unsupported' && mechanic.kind !== 'cast_roster' && mechanic.kind !== 'lore_codex')
         .slice(0, 12);
+    type CastMechanicEntry = { id: string; name: string; aliasTitle?: string; role?: string; isPlayer: boolean; fields: import('../utils/echoesMechanicsTypes').EchoesCastFieldEntry[]; sections: import('../utils/echoesMechanicsTypes').EchoesCastSection[]; tags: string[] };
+    type LoreMechanicEntry = { id: string; term: string; category: import('../utils/echoesMechanicsTypes').EchoesLoreCategory; summary: string; details?: string; tags: string[] };
+    const castMechanics: CastMechanicEntry[] = allMechanics
+        .filter(mechanic => mechanic.kind === 'cast_roster' && mechanic.status !== 'disabled')
+        .flatMap(mechanic => mechanic.data.kind === 'cast_roster' ? [{ id: mechanic.id, ...mechanic.data.character }] : []);
+    const loreMechanics: LoreMechanicEntry[] = allMechanics
+        .filter(mechanic => mechanic.kind === 'lore_codex' && mechanic.status !== 'disabled')
+        .flatMap(mechanic => mechanic.data.kind === 'lore_codex' ? [{ id: mechanic.id, ...mechanic.data.entry }] : []);
     const sceneType = lastTurn?.afterDirector?.sceneType || activeWorld.director.sceneType;
     const hasSuggestions = ui.showSuggestions && !!lastTurn?.suggestions?.length && !generating;
 
@@ -2190,26 +2209,33 @@ const EchoesApp: React.FC = () => {
         return groups;
     })();
 
-    // 世界志：从已通过校验的 hardFacts/knownFacts 中派生分类展示。
-    // 按关键词启发式归类为：地点、势力/组织、人物概念、纪年/事件、名词解释。
-    // 这是第一版（A方案只读分类视图）；后续接入 lore_codex mechanic 时内容升级，框架不变。
-    const LORE_CATEGORIES = [
-        { key: 'place',  label: '地点',   keywords: ['地方', '地点', '城市', '区域', '公寓', '街道', '建筑', '遗址', '空间', '位置', '场所', '地带', '地区', '境', '城', '殿', '岛', '山', '湖', '海', '森林', '房间', '大楼', '园', '宫', '洞', '谷', '港', '站', '部', '院', '所', '馆', '阵地'] },
-        { key: 'faction',label: '势力',   keywords: ['组织', '势力', '联盟', '公会', '家族', '派系', '阵营', '机构', '政府', '帝国', '王国', '公司', '团', '队', '会', '派', '军', '党', '门', '堂', '宗', '营', '社', '部落', '天榜', '小队', '零序'] },
-        { key: 'event',  label: '纪年/事件', keywords: ['年', '月', '日', '事件', '之战', '之乱', '纪元', '时代', '历史', '发生', '那年', '那天', '那一天', '当年', '灾难', '变故', '始于', '终于', '降临', '崩塌', '万象', '副本', '开局', '序章'] },
-        { key: 'concept',label: '名词解释', keywords: [] }, // 兜底分类
+    const LORE_CATEGORY_LABELS: Record<string, string> = { place: '地点', faction: '势力', timeline: '纪年/事件', concept: '名词解释', item: '物品/道具', other: '其他' };
+    const loreByKind = loreMechanics.reduce<Record<string, typeof loreMechanics>>((acc, entry) => {
+        const key = entry.category || 'other';
+        acc[key] = acc[key] ? [...acc[key], entry] : [entry];
+        return acc;
+    }, {});
+    const loreSections = ['place', 'faction', 'timeline', 'concept', 'item', 'other'].filter(key => loreByKind[key]?.length);
+
+    // 老存档兼容：尚未产生任何 lore_codex 条目时，回退到旧的关键词分类展示，
+    // 不让老世界在这个 tab 直接变空白。新世界随着 AI 产出 lore_codex patch 会自动切换到结构化版本。
+    const LEGACY_LORE_CATEGORIES = [
+        { key: 'place', label: '地点', keywords: ['地方', '地点', '城市', '区域', '公寓', '街道', '建筑', '遗址', '空间', '位置', '场所', '地带', '地区', '境', '城', '殿', '岛', '山', '湖', '海', '森林', '房间', '大楼', '园', '宫', '洞', '谷', '港', '站', '部', '院', '所', '馆', '阵地'] },
+        { key: 'faction', label: '势力', keywords: ['组织', '势力', '联盟', '公会', '家族', '派系', '阵营', '机构', '政府', '帝国', '王国', '公司', '团', '队', '会', '派', '军', '党', '门', '堂', '宗', '营', '社', '部落'] },
+        { key: 'timeline', label: '纪年/事件', keywords: ['年', '月', '日', '事件', '之战', '之乱', '纪元', '时代', '历史', '发生', '那年', '那天', '那一天', '当年', '灾难', '变故', '始于', '终于', '降临', '崩塌'] },
+        { key: 'concept', label: '名词解释', keywords: [] },
     ];
-    const classifyLoreFact = (fact: string): string => {
-        for (const cat of LORE_CATEGORIES.slice(0, -1)) {
+    const classifyLegacyLoreFact = (fact: string): string => {
+        for (const cat of LEGACY_LORE_CATEGORIES.slice(0, -1)) {
             if (cat.keywords.some(kw => fact.includes(kw))) return cat.key;
         }
         return 'concept';
     };
-    const allFacts = [...new Set([...activeWorld.hardFacts, ...activeWorld.knownFacts])];
-    const loreByCategory = LORE_CATEGORIES.map(cat => ({
+    const legacyAllFacts = [...new Set([...activeWorld.hardFacts, ...activeWorld.knownFacts])];
+    const legacyLoreByCategory = loreMechanics.length === 0 ? LEGACY_LORE_CATEGORIES.map(cat => ({
         ...cat,
-        facts: allFacts.filter(f => classifyLoreFact(f) === cat.key),
-    })).filter(cat => cat.facts.length > 0);
+        facts: legacyAllFacts.filter(f => classifyLegacyLoreFact(f) === cat.key),
+    })).filter(cat => cat.facts.length > 0) : [];
 
     const loreView = <div className="mx-auto w-full max-w-2xl space-y-5 px-4 pb-8 pt-4">
         <div className="mb-1">
@@ -2217,10 +2243,28 @@ const EchoesApp: React.FC = () => {
             <h2 className="mt-1 text-xl font-bold">世界志</h2>
             <p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>
                 {activeWorld.worldSetting && <span className="block mb-3 border-l-2 pl-3 italic leading-relaxed" style={{ borderColor: `${ui.accent}40` }}>{activeWorld.worldSetting.slice(0, 200)}{activeWorld.worldSetting.length > 200 ? '……' : ''}</span>}
-                {allFacts.length === 0 ? '世界的轮廓随故事推进而浮现，此处将会逐渐充实。' : `已记录 ${allFacts.length} 条世界事实，按类别整理如下。`}
+                {loreMechanics.length > 0 ? `已收录 ${loreMechanics.length} 条世界志条目，由 AI 自动整理分类。`
+                    : legacyLoreByCategory.length > 0 ? '以下内容按关键词粗略整理，AI 补充结构化条目后会自动切换为精确分类。'
+                        : '世界的轮廓随故事推进而浮现，此处将会逐渐充实。'}
             </p>
         </div>
-        {loreByCategory.length > 0 ? loreByCategory.map(cat => (
+        {loreSections.length > 0 ? loreSections.map(catKey => (
+            <section key={catKey} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}>
+                <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest" style={{ color: ui.accent }}>{LORE_CATEGORY_LABELS[catKey] ?? catKey}</h3>
+                <div className="space-y-3">
+                    {loreByKind[catKey].map(entry => (
+                        <div key={entry.id} className="border-b pb-3 last:border-b-0 last:pb-0" style={{ borderColor: `${palette.border}80` }}>
+                            <div className="flex items-start justify-between gap-2">
+                                <span className="font-semibold text-sm">{entry.term}</span>
+                                {entry.tags.length > 0 && <div className="flex shrink-0 flex-wrap gap-1">{entry.tags.slice(0, 3).map(tag => <span key={tag} className="rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${ui.accent}14`, color: ui.accent }}>{tag}</span>)}</div>}
+                            </div>
+                            {entry.summary && <p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>{entry.summary}</p>}
+                            {entry.details && <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-wrap" style={{ color: palette.muted }}>{entry.details}</p>}
+                        </div>
+                    ))}
+                </div>
+            </section>
+        )) : legacyLoreByCategory.length > 0 ? legacyLoreByCategory.map(cat => (
             <section key={cat.key} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}>
                 <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest" style={{ color: ui.accent }}>{cat.label}</h3>
                 <ul className="space-y-2">
@@ -2236,7 +2280,7 @@ const EchoesApp: React.FC = () => {
             <div className="rounded-2xl border border-dashed p-10 text-center text-xs opacity-50" style={{ borderColor: palette.border }}>
                 <Globe size={28} className="mx-auto mb-3 opacity-30" style={{ color: ui.accent }} />
                 <p>世界的记录从第一个故事开始。</p>
-                <p className="mt-1 opacity-60">随着剧情推进，地点、势力与重要事件将在此留存。</p>
+                <p className="mt-1 opacity-60">AI 会在故事推进时，将地点、势力与事件整理到这里。</p>
             </div>
         )}
     </div>;
@@ -2285,9 +2329,33 @@ const EchoesApp: React.FC = () => {
         )}
     </div>;
 
+    // 人物：优先展示结构化 cast_roster mechanic（每个角色一个稳定 id，AI 精确增删）。
+    // 老存档尚未产出任何 cast_roster 时，回退到旧的自由文本解析，避免老存档突然变空白。
     const relationsView = <div className="mx-auto w-full max-w-2xl px-4 pb-6 pt-4">
         <div className="mb-5"><p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>CAST</p><h2 className="mt-1 text-xl font-bold">{ui.labels.people}</h2><p className="mt-1 text-xs leading-relaxed" style={{ color: palette.muted }}>人物不会被预先锁死；这里记录已经在世界中出现、或由你明确写入的角色。</p></div>
-        {castEntries.length > 0 ? <div className="space-y-2.5">{castEntries.map((entry, index) => <div key={`${entry.name}-${index}`} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold" style={{ color: ui.accent, background: `${ui.accent}18` }}>{entry.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-bold">{entry.name}</h3>{entry.isPlayer && <span className="rounded-full px-2 py-0.5 text-[9px]" style={{ color: ui.accent, background: `${ui.accent}16` }}>玩家</span>}</div><p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed" style={{ color: palette.muted }}>{entry.detail}</p></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed p-8 text-center text-xs opacity-55" style={{ borderColor: palette.border }}>故事会在人物出现后逐渐形成关系。</div>}
+        {castMechanics.length > 0 ? <div className="space-y-2.5">
+            {castMechanics.map(entry => <div key={entry.id} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}>
+                <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold" style={{ color: ui.accent, background: `${ui.accent}18` }}>{entry.name.slice(0, 1)}</div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-bold">{entry.name}</h3>
+                            {entry.aliasTitle && <span className="text-xs opacity-60">{entry.aliasTitle}</span>}
+                            {entry.isPlayer && <span className="rounded-full px-2 py-0.5 text-[9px]" style={{ color: ui.accent, background: `${ui.accent}16` }}>玩家</span>}
+                        </div>
+                        {entry.role && <p className="mt-0.5 text-xs" style={{ color: palette.muted }}>{entry.role}</p>}
+                        {entry.fields.length > 0 && <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                            {entry.fields.map((field, i) => <div key={`${field.label}-${i}`} className="min-w-0"><dt className="text-[9.5px] opacity-55">{field.label}</dt><dd className="truncate text-xs" style={{ color: palette.text }}>{field.value}</dd></div>)}
+                        </dl>}
+                        {entry.sections.map((section, i) => <div key={`${section.heading}-${i}`} className="mt-2.5 border-t pt-2" style={{ borderColor: `${palette.border}80` }}>
+                            <p className="text-[10px] font-semibold" style={{ color: ui.accent }}>{section.heading}</p>
+                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed" style={{ color: palette.muted }}>{section.body}</p>
+                        </div>)}
+                        {entry.tags.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{entry.tags.slice(0, 6).map(tag => <span key={tag} className="rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${ui.accent}12`, color: ui.accent }}>{tag}</span>)}</div>}
+                    </div>
+                </div>
+            </div>)}
+        </div> : castEntries.length > 0 ? <div className="space-y-2.5">{castEntries.map((entry, index) => <div key={`${entry.name}-${index}`} className="rounded-2xl border p-4" style={{ borderColor: palette.border, background: `${palette.panel}b8` }}><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold" style={{ color: ui.accent, background: `${ui.accent}18` }}>{entry.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-bold">{entry.name}</h3>{entry.isPlayer && <span className="rounded-full px-2 py-0.5 text-[9px]" style={{ color: ui.accent, background: `${ui.accent}16` }}>玩家</span>}</div><p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed" style={{ color: palette.muted }}>{entry.detail}</p></div></div></div>)}</div> : <div className="rounded-2xl border border-dashed p-8 text-center text-xs opacity-55" style={{ borderColor: palette.border }}>故事会在人物出现后逐渐形成关系。</div>}
     </div>;
 
     const actionDock = activeTab === 'story' && <div className={`sully-echoes-chrome shrink-0 border-t px-3 pb-1.5 pt-1.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[24px] ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f8`, borderColor: palette.border }}>

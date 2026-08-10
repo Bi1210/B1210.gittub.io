@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    ALWAYS_ENABLED_MECHANIC_KINDS,
     ECHOES_MECHANIC_CATALOG,
     applyMechanicPatches,
     getMechanicCatalogForPrompt,
@@ -9,6 +10,7 @@ import {
     normalizeMechanics,
     selectMechanicsForTrigger,
 } from './echoesMechanics';
+import { filterNovelMechanicPatches } from './echoesNovelRuntimeGuards';
 
 describe('Echoes mechanic registry', () => {
     it('exposes concrete components without binding them to a genre', () => {
@@ -75,5 +77,123 @@ describe('Echoes mechanic registry', () => {
             normalizeMechanic({ id: 'event', kind: 'event_card', trigger: 'event' }, 1),
         ];
         expect(selectMechanicsForTrigger(mechanics, 'scene').map(item => item.id)).toEqual(['scene', 'always']);
+    });
+});
+
+describe('cast_roster and lore_codex mechanic kinds', () => {
+    it('normalizes a cast_roster mechanic with nested character object', () => {
+        const m = normalizeMechanic({
+            id: 'cast-zhangsan',
+            kind: 'cast_roster',
+            title: '张三',
+            trigger: 'always',
+            data: {
+                character: {
+                    name: '张三',
+                    aliasTitle: '铁手',
+                    role: '退伍老兵，现任保安',
+                    isPlayer: false,
+                    fields: [
+                        { label: '年龄', value: '45' },
+                        { label: '阵营', value: '守序中立' },
+                    ],
+                    sections: [
+                        { heading: '背景', body: '曾在边境服役十年，后因伤退役。' },
+                    ],
+                    tags: ['老兵', '配角'],
+                },
+            },
+        });
+        expect(m.kind).toBe('cast_roster');
+        expect(m.id).toBe('cast-zhangsan');
+        if (m.data.kind === 'cast_roster') {
+            expect(m.data.character.name).toBe('张三');
+            expect(m.data.character.aliasTitle).toBe('铁手');
+            expect(m.data.character.isPlayer).toBe(false);
+            expect(m.data.character.fields).toHaveLength(2);
+            expect(m.data.character.fields[0].label).toBe('年龄');
+            expect(m.data.character.sections).toHaveLength(1);
+            expect(m.data.character.sections[0].heading).toBe('背景');
+            expect(m.data.character.tags).toContain('老兵');
+        }
+    });
+
+    it('normalizes a cast_roster with flat shape (no nested character wrapper)', () => {
+        const m = normalizeMechanic({
+            id: 'cast-player',
+            kind: 'cast_roster',
+            title: '主角',
+            trigger: 'always',
+            data: {
+                // AI 也可能直接把字段平铺在 data 里，不套 character 对象
+                name: '林默',
+                role: '玩家角色',
+                isPlayer: true,
+                fields: [{ label: '职业', value: '调查员' }],
+                sections: [],
+                tags: ['玩家'],
+            },
+        });
+        expect(m.kind).toBe('cast_roster');
+        if (m.data.kind === 'cast_roster') {
+            expect(m.data.character.name).toBe('林默');
+            expect(m.data.character.isPlayer).toBe(true);
+        }
+    });
+
+    it('normalizes a lore_codex entry with correct category passthrough', () => {
+        const m = normalizeMechanic({
+            id: 'lore-mistyforest',
+            kind: 'lore_codex',
+            title: '迷雾森林',
+            trigger: 'always',
+            data: {
+                entry: {
+                    term: '迷雾森林',
+                    category: 'place',
+                    summary: '城市东侧的禁区，常年弥漫不散的青灰色薄雾。',
+                    details: '据说是旧战场遗留的某种能量干扰区域，指南针在其中会失灵。',
+                    tags: ['危险地带', '禁区'],
+                },
+            },
+        });
+        expect(m.kind).toBe('lore_codex');
+        expect(m.id).toBe('lore-mistyforest');
+        if (m.data.kind === 'lore_codex') {
+            expect(m.data.entry.term).toBe('迷雾森林');
+            expect(m.data.entry.category).toBe('place');
+            expect(m.data.entry.summary).toContain('禁区');
+            expect(m.data.entry.details).toContain('指南针');
+            expect(m.data.entry.tags).toContain('危险地带');
+        }
+    });
+
+    it('falls back lore_codex category to "other" for unknown values', () => {
+        const m = normalizeMechanic({
+            id: 'lore-misc',
+            kind: 'lore_codex',
+            title: '某条目',
+            trigger: 'always',
+            data: { entry: { term: '奇怪东西', category: 'magic_system', summary: '未知分类的条目' } },
+        });
+        if (m.data.kind === 'lore_codex') {
+            expect(m.data.entry.category).toBe('other');
+        }
+    });
+
+    it('allows cast_roster and lore_codex through filterNovelMechanicPatches even without profile', () => {
+        // No profile (state='none') — all registered kinds are allowed, including the new ones.
+        const patches = [
+            { op: 'upsert', mechanic: { id: 'cast-liming', kind: 'cast_roster', trigger: 'always', data: { character: { name: '黎明', isPlayer: false, fields: [], sections: [], tags: [] } } } },
+            { op: 'upsert', mechanic: { id: 'lore-tower', kind: 'lore_codex', trigger: 'always', data: { entry: { term: '暗塔', category: 'place', summary: '北方地标', tags: [] } } } },
+        ];
+        const result = filterNovelMechanicPatches(patches, undefined, []);
+        expect(result.patches).toHaveLength(2);
+        expect(result.rejectedPatches).toHaveLength(0);
+    });
+
+    it('ALWAYS_ENABLED_MECHANIC_KINDS includes cast_roster and lore_codex', () => {
+        expect(ALWAYS_ENABLED_MECHANIC_KINDS.has('cast_roster')).toBe(true);
+        expect(ALWAYS_ENABLED_MECHANIC_KINDS.has('lore_codex')).toBe(true);
     });
 });

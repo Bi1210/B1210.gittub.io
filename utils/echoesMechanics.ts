@@ -5,9 +5,11 @@ import {
     type EchoesEventCardData,
     type EchoesEvidenceEntry,
     type EchoesGenericPanelData,
+    type EchoesCastCharacter,
     type EchoesInventoryItem,
     type EchoesLeaderboardEntry,
     type EchoesLiveRoomData,
+    type EchoesLoreEntry,
     type EchoesMechanicAction,
     type EchoesMechanicActionEffect,
     type EchoesMechanicData,
@@ -54,10 +56,21 @@ export const ECHOES_MECHANIC_CATALOG: readonly EchoesMechanicDefinition[] = [
     { kind: 'resource_panel', label: '资源面板', purpose: '生存资源、材料、货币或可消耗数值', allowedTriggers: ['scene', 'event', 'manual'], interactive: false },
     { kind: 'event_card', label: '突发事件', purpose: '需要玩家回应的事件通知或临时危机', allowedTriggers: ['scene', 'choice', 'event'], interactive: true },
     { kind: 'generic_panel', label: '自定义面板', purpose: '已注册组件无法精确表达时的安全结构化面板', allowedTriggers: ['scene', 'event', 'manual'], interactive: false },
+    { kind: 'cast_roster', label: '人物档案', purpose: '"人物"tab 的单个角色结构化档案，AI 用稳定 id 精确增删', allowedTriggers: ['always'], interactive: false },
+    { kind: 'lore_codex', label: '世界志条目', purpose: '"世界志"tab 的单条地点/势力/纪年事件/名词/道具条目', allowedTriggers: ['always'], interactive: false },
 ];
 
 const CATALOG = new Map(ECHOES_MECHANIC_CATALOG.map(item => [item.kind, item]));
 const KINDS = new Set<EchoesMechanicKind>(ECHOES_MECHANIC_CATALOG.map(item => item.kind));
+
+/**
+ * cast_roster / lore_codex 是"人物"/"世界志"两个核心导航 tab 的数据来源，
+ * 属于每个世界都必须具备的通用能力，不是世界包按需选配的玩法机制（如
+ * task_panel、danmaku_stream）。因此它们始终允许使用，不受
+ * EchoesNovelProfile.enabledMechanicKinds 白名单约束——该白名单只用于
+ * 控制"是否启用某种可选玩法机制"，不应该关闭基础导航。
+ */
+export const ALWAYS_ENABLED_MECHANIC_KINDS: ReadonlySet<EchoesMechanicKind> = new Set(['cast_roster', 'lore_codex']);
 const STATUSES = new Set<EchoesMechanicStatus>(['active', 'hidden', 'completed', 'failed', 'disabled']);
 const TRIGGERS = new Set<EchoesMechanicTrigger>(['manual', 'scene', 'chapter_start', 'chapter_end', 'choice', 'event', 'always']);
 const SOURCES = new Set<EchoesMechanicSource>(['user', 'ai', 'system']);
@@ -321,6 +334,40 @@ const normalizeData = (kind: EchoesMechanicKind, rawData: unknown): EchoesMechan
                 return { id: text(field.id, 120) || `field-${index + 1}`, label: text(field.label, 200), value: safeValue, display };
             }).filter(field => field.label);
             return { kind, data: { fields } };
+        }
+        case 'cast_roster': {
+            // AI 有时会按 { character: {...} } 嵌套，有时会把字段直接平铺在 data 里；两种形状都接受。
+            const value = raw.character && typeof raw.character === 'object' ? raw.character as Record<string, unknown> : raw;
+            const fields = array(value.fields, 40).map((item) => {
+                const field = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+                return { label: text(field.label, 100), value: text(field.value, 600) };
+            }).filter(field => field.label);
+            const sections = array(value.sections, 20).map((item) => {
+                const section = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+                return { heading: text(section.heading, 100), body: text(section.body, 4000) };
+            }).filter(section => section.heading && section.body);
+            const character = {
+                name: text(value.name, 100),
+                ...(text(value.aliasTitle, 100) ? { aliasTitle: text(value.aliasTitle, 100) } : {}),
+                ...(text(value.role, 300) ? { role: text(value.role, 300) } : {}),
+                isPlayer: value.isPlayer === true,
+                fields,
+                sections,
+                tags: stringArray(value.tags, 12, 50),
+            };
+            return { kind, character };
+        }
+        case 'lore_codex': {
+            const value = raw.entry && typeof raw.entry === 'object' ? raw.entry as Record<string, unknown> : raw;
+            const category = ['place', 'faction', 'timeline', 'concept', 'item', 'other'].includes(value.category as string) ? value.category as EchoesLoreEntry['category'] : 'other';
+            const entry = {
+                term: text(value.term, 150),
+                category,
+                summary: text(value.summary, 500),
+                ...(text(value.details, 4000) ? { details: text(value.details, 4000) } : {}),
+                tags: stringArray(value.tags, 12, 50),
+            };
+            return { kind, entry };
         }
         case 'unsupported':
             return { kind, data: { requestedKind: text(raw.requestedKind, 120), reason: text(raw.reason, 800), summary: text(raw.summary, 1200) } };

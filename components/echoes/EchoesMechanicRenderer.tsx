@@ -302,6 +302,9 @@ export const EchoesMechanicRenderer: React.FC<EchoesMechanicRendererProps> = ({ 
             {data.kind === 'evidence_board' && <div className="space-y-2">{data.entries.slice(0, 10).map(entry => <EvidenceRow key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
             {data.kind === 'resource_panel' && <div className="grid grid-cols-2 gap-2">{data.entries.slice(0, 8).map(entry => <ResourceCell key={entry.id} entry={entry} accent={accent} muted={palette.muted} />)}</div>}
             {data.kind === 'generic_panel' && <GenericPanelCard data={data.data} accent={accent} muted={palette.muted} />}
+            {/* cast_roster / lore_codex 正常由"人物"/"世界志"两个独立 tab 渲染，不会内联到这里；此处仅作兜底，避免万一遗漏过滤时留白。 */}
+            {data.kind === 'cast_roster' && <p className="text-[11px] leading-relaxed" style={{ color: palette.muted }}>{data.character.name} · 详见"{'人物'}"页</p>}
+            {data.kind === 'lore_codex' && <p className="text-[11px] leading-relaxed" style={{ color: palette.muted }}>{data.entry.term} · 详见"世界志"页</p>}
             {data.kind === 'unsupported' && <p className="text-[11px] leading-relaxed" style={{ color: palette.muted }}>{data.data.summary || '这是一个可展开的世界节点。'}</p>}
             {isRegisteredInteractive && <ActionList actions={renderedActions} mechanicId={mechanic.id} accent={accent} border={palette.border} busy={busy} onAction={onAction} />}
         </div>}

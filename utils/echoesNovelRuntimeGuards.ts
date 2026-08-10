@@ -1,4 +1,4 @@
-import { getMechanicDefinition, isRegisteredMechanicKind, normalizeMechanic } from './echoesMechanics';
+import { ALWAYS_ENABLED_MECHANIC_KINDS, getMechanicDefinition, isRegisteredMechanicKind, normalizeMechanic } from './echoesMechanics';
 import type {
     EchoesMechanicInstance,
     EchoesMechanicPatch,
@@ -394,7 +394,8 @@ export function sanitizeNovelMechanicSnapshot(
         // untrustworthy. Do not turn its fallback into a trusted cursor.
         return [];
     }
-    const enabledKinds = new Set(profile!.enabledMechanicKinds);
+    // cast_roster / lore_codex 是基础导航能力，始终允许，不受世界包白名单约束。
+    const enabledKinds = new Set([...profile!.enabledMechanicKinds, ...ALWAYS_ENABLED_MECHANIC_KINDS]);
     // The caller supplies either the trusted initial baseline or the already
     // reconstructed cursor. New IDs created by an accepted patch are valid
     // and must survive into the next cursor; the profile kind allowlist is the
@@ -433,7 +434,8 @@ export function filterNovelMechanicPatches(
     const patches: EchoesMechanicPatch[] = [];
     const state = profileState(profile);
     const hasProfile = state === 'valid';
-    const enabledKinds = new Set<string>(hasProfile ? profile!.enabledMechanicKinds : []);
+    // cast_roster / lore_codex 是基础导航能力，始终允许，不受世界包白名单约束。
+    const enabledKinds = new Set<string>(hasProfile ? [...profile!.enabledMechanicKinds, ...ALWAYS_ENABLED_MECHANIC_KINDS] : [...ALWAYS_ENABLED_MECHANIC_KINDS]);
     const activeIds = currentEnabledMechanicIds(currentMechanics, enabledKinds);
     const disabledIds = currentDisabledMechanicIds(currentMechanics, enabledKinds);
     const truncated = entries.length > limits.maxPatches;

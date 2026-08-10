@@ -25,6 +25,8 @@ export type EchoesMechanicKind =
     | 'resource_panel'
     | 'event_card'
     | 'generic_panel'
+    | 'cast_roster'
+    | 'lore_codex'
     | 'unsupported';
 
 export type EchoesDanmakuTone = 'supportive' | 'critical' | 'neutral' | 'shipping' | 'hostile' | 'rumor' | 'unknown';
@@ -194,6 +196,47 @@ export interface EchoesUnsupportedMechanicData {
     summary: string;
 }
 
+/** "人物"tab 的单个字段，例如 { label: '年龄', value: '22' }；由 AI 自由定义 label，不绑定具体世界观。 */
+export interface EchoesCastFieldEntry {
+    label: string;
+    value: string;
+}
+
+/** "人物"tab 的一个正文段落，例如角色小传里的"进入万象前/进入万象后"分段。 */
+export interface EchoesCastSection {
+    heading: string;
+    body: string;
+}
+
+/**
+ * 单个角色的结构化档案。每个角色对应一个独立的 cast_roster mechanic 实例，
+ * 靠稳定 id（AI 用姓名生成的 slug）精确增删，不再靠猜测自由文本的段落边界。
+ */
+export interface EchoesCastCharacter {
+    name: string;
+    aliasTitle?: string;
+    role?: string;
+    isPlayer: boolean;
+    fields: EchoesCastFieldEntry[];
+    sections: EchoesCastSection[];
+    tags: string[];
+}
+
+/** 世界志条目的分类，由 AI 直接判断，不是关键词猜测。 */
+export type EchoesLoreCategory = 'place' | 'faction' | 'timeline' | 'concept' | 'item' | 'other';
+
+/**
+ * 单条世界志条目（地点/势力/纪年事件/名词/道具等）。每条对应一个独立的
+ * lore_codex mechanic 实例，靠稳定 id 精确增删。
+ */
+export interface EchoesLoreEntry {
+    term: string;
+    category: EchoesLoreCategory;
+    summary: string;
+    details?: string;
+    tags: string[];
+}
+
 export type EchoesMechanicData =
     | { kind: 'danmaku_stream'; items: EchoesDanmakuItem[] }
     | { kind: 'trending_board'; entries: EchoesTrendingEntry[] }
@@ -211,6 +254,8 @@ export type EchoesMechanicData =
     | { kind: 'resource_panel'; entries: EchoesResourceEntry[] }
     | { kind: 'event_card'; data: EchoesEventCardData }
     | { kind: 'generic_panel'; data: EchoesGenericPanelData }
+    | { kind: 'cast_roster'; character: EchoesCastCharacter }
+    | { kind: 'lore_codex'; entry: EchoesLoreEntry }
     | { kind: 'unsupported'; data: EchoesUnsupportedMechanicData };
 
 export interface EchoesMechanicInstance {
