@@ -29,6 +29,7 @@ import { readNovelFile } from '../utils/echoesNovelParser';
 import { createCrossoverConfigDraft, setCrossoverConfigConfirmed } from '../utils/echoesCrossover';
 import type { EchoesCrossoverConfig, EchoesCrossoverRole, EchoesCanonPolicy, EchoesSpoilerMode } from '../utils/echoesCrossoverTypes';
 import type { ParsedNovel } from '../utils/echoesNovelTypes';
+import { createEchoesNovelProfile } from '../utils/echoesNovelProfile';
 
 
 const ALL_FORMATS: EchoesFormat[] = [
@@ -1192,7 +1193,7 @@ const EchoesApp: React.FC = () => {
             }));
             
             setCrossoverDraft(createCrossoverConfigDraft({
-                source: { kind: 'uploaded', title: result.analysis.title || parsed.fileName, fileName: parsed.fileName },
+                source: { kind: 'uploaded', title: result.analysis.title || parsed.fileName, fileName: parsed.fileName, format: parsed.format, parserVersion: parsed.parserVersion, chapterCount: parsed.chapterCount, normalizedCharCount: parsed.normalizedCharCount },
                 role: 'replace_character',
                 canonPolicy: 'guided'
             }));
@@ -1218,9 +1219,41 @@ const EchoesApp: React.FC = () => {
         const finalUI: EchoesUIProfile = adaptiveHint
             ? { ...draftUI, theme: adaptiveHint.theme!, accent: adaptiveHint.accent!, layout: adaptiveHint.layout!, fontFamily: adaptiveHint.fontFamily!, labels: { ...draftUI.labels } }
             : { ...draftUI, labels: { ...draftUI.labels } };
+
+        // 穿书导入：把 AI 分析结果、玩家的穿越身份/收束策略/剧透档位真正写入世界，
+        // 而不是让向导填完的配置在创建时被丢弃退化成普通手动世界。
+        const isNovelCrossover = creationMethod === 'novel' && !!novelAnalysis;
+        const novelProfile = isNovelCrossover
+            ? createEchoesNovelProfile(novelAnalysis, {
+                source: { kind: 'uploaded', title: novelAnalysis.title || parsedNovelFile?.fileName, fileName: parsedNovelFile?.fileName },
+                document: parsedNovelFile ? {
+                    fileName: parsedNovelFile.fileName, format: parsedNovelFile.format,
+                    parserVersion: parsedNovelFile.parserVersion, chapterCount: parsedNovelFile.chapterCount,
+                    normalizedCharCount: parsedNovelFile.normalizedCharCount,
+                } : undefined,
+                entryPoint: crossoverDraft.entryPoint,
+                now,
+            }).profile
+            : undefined;
+        const confirmedCrossover = isNovelCrossover ? setCrossoverConfigConfirmed(createCrossoverConfigDraft(crossoverDraft)) : undefined;
+        // 魂穿/替换角色：没有手动填身份时，用被替换角色的原著身份代替，而不是留空。
+        const replacedCharacter = confirmedCrossover?.role === 'replace_character'
+            ? novelAnalysis?.mainCharacters?.find((c: any) => c.name === confirmedCrossover.replacementCharacter)
+            : undefined;
+        const crossoverIdentity = confirmedCrossover
+            ? (confirmedCrossover.playerIdentity.trim() || (replacedCharacter ? `${replacedCharacter.name}：${replacedCharacter.identity}` : ''))
+            : '';
+        const spoilerNote = confirmedCrossover ? {
+            none: '你不提前知道原著剧情，像正常读者一样在世界中探索，不能利用超出当前进度的原著知识。',
+            hints: '你偶尔会对未发生的事有模糊预感或直觉，但不能明确说出具体剧情，只能以隐约的方式表现。',
+            full: '你清楚原著剧情走向，可以主动利用或试图改变已知的未来事件。',
+        }[confirmedCrossover.canonKnowledge.spoilerMode] : '';
+
         const seed: EchoesWorld = {
             id: `echoes-${now}-${Math.random().toString(36).slice(2, 8)}`,
-            title: draft.title.trim(), worldSetting: draft.world.trim(), playerIdentity: draft.identity.trim(), cast: draft.cast.trim(),
+            title: draft.title.trim(), worldSetting: draft.world.trim(),
+            playerIdentity: (draft.identity.trim() || crossoverIdentity) + (spoilerNote ? `\n\n【穿书剧透设置】${spoilerNote}` : ''),
+            cast: draft.cast.trim(),
             mode: draft.mode, qualityMode: draft.qualityMode, allowedFormats: [...DEFAULT_FORMATS], formattingPreference: draft.formatting,
             ui: finalUI,
             initialState: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
@@ -1235,6 +1268,7 @@ const EchoesApp: React.FC = () => {
             protocol: normalizeProtocol(draftProtocol),
             continuitySummary: '',
             hardFacts: [], knownFacts: [], turns: [], createdAt: now, updatedAt: now, lastPlayedAt: now, version: 1,
+            ...(novelProfile ? { novelProfile } : {}),
         };
         try {
             const data = await requestAI(basePrompt(seed, '（开场）', true), 6500, seed.title);
@@ -1721,6 +1755,8 @@ const EchoesApp: React.FC = () => {
                                         {crossoverDraft.role === 'replace_character' && <StepField label="选择要替换的角色"><select value={crossoverDraft.replacementCharacter || ''} onChange={e => setCrossoverDraft({ ...crossoverDraft, replacementCharacter: e.target.value })} className="w-full rounded-lg border border-white/10 bg-black/20 p-2"><option value="">请选择...</option>{novelAnalysis.mainCharacters.map((c: any) => <option key={c.name} value={c.name}>{c.name} ({c.identity})</option>)}</select></StepField>}
                                         
                                         <StepField label="原著收束策略"><select value={crossoverDraft.canonPolicy} onChange={e => setCrossoverDraft({ ...crossoverDraft, canonPolicy: e.target.value as any })} className="w-full rounded-lg border border-white/10 bg-black/20 p-2"><option value="guided">剧情修正（世界会尝试修正你的偏差）</option><option value="free">自由发展（蝴蝶效应彻底发散）</option><option value="fixed">强制收束（无论做什么都会走向原定命运）</option></select></StepField>
+
+                                        <StepField label="剧透模式" hint="决定你能提前知道多少原著剧情"><select value={crossoverDraft.canonKnowledge?.spoilerMode || 'none'} onChange={e => setCrossoverDraft({ ...crossoverDraft, canonKnowledge: { knowsFuturePlot: e.target.value !== 'none', spoilerMode: e.target.value as any, knownEventIds: crossoverDraft.canonKnowledge?.knownEventIds || [], notes: crossoverDraft.canonKnowledge?.notes || [] } })} className="w-full rounded-lg border border-white/10 bg-black/20 p-2"><option value="none">盲玩（不提前知道任何原著剧情，像正常读者一样探索）</option><option value="hints">提示（偶尔给出模糊预感或暗示，不直接剧透）</option><option value="full">全知（你清楚原著剧情走向，可主动利用或改变）</option></select></StepField>
                                         
                                         <button onClick={() => setCreationMethod('manual')} className="mt-2 w-full rounded-lg bg-white/10 py-2 font-bold hover:bg-white/20">确认配置并进入人工微调</button>
                                     </div>
