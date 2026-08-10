@@ -25,7 +25,7 @@ import { buildEchoesNovelRuntimeContext } from '../utils/echoesNovelRuntime';
 import { buildEchoesTurnOutputInstruction, parseEchoesTurnOutput } from '../utils/echoesTurnProtocol';
 import { sanitizeEchoesWorldForStorage } from '../utils/echoesWorldStorage';
 import { analyzeNovelDocument, prepareNovelAnalysis } from '../utils/echoesNovelWorkflow';
-import { parseEpubNovel } from '../utils/echoesNovelParser';
+import { readNovelFile } from '../utils/echoesNovelParser';
 import { createCrossoverConfigDraft, setCrossoverConfigConfirmed } from '../utils/echoesCrossover';
 import type { EchoesCrossoverConfig, EchoesCrossoverRole, EchoesCanonPolicy, EchoesSpoilerMode } from '../utils/echoesCrossoverTypes';
 import type { ParsedNovel } from '../utils/echoesNovelTypes';
@@ -1139,7 +1139,7 @@ const EchoesApp: React.FC = () => {
         setGenerating(true);
         addToast('正在解析原著文件...', 'info');
         try {
-            const parsed = await parseEpubNovel(file as any);
+            const parsed = await readNovelFile(file as any);
             setParsedNovelFile(parsed);
             addToast('文件解析成功，正在提取世界观与人物...', 'info');
             
