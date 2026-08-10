@@ -163,8 +163,16 @@ export const installIOSStandaloneWorkaround = () => {
         document.body.classList.add('ios-standalone');
     }
 
+    // 键盘展开/收起动画期间 visualViewport 的 resize/scroll 会高频触发（远超一帧一次），
+    // 每次都直接同步重排会和系统键盘的原生合成动画抢主线程，造成掉帧、卡顿感。
+    // 用 rAF 把同一帧内的多次事件合并成一次实际更新，不丢最后一次的值。
+    let viewportRafId: number | null = null;
     const handleViewportChange = () => {
-        setViewportVars();
+        if (viewportRafId !== null) return;
+        viewportRafId = window.requestAnimationFrame(() => {
+            viewportRafId = null;
+            setViewportVars();
+        });
     };
 
     // 只有旋转 / 窗口尺寸变化才真的改变安全区：让缓存失效后重新探测（滚动、聚焦走缓存，不再重排）。
