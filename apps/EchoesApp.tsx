@@ -320,8 +320,10 @@ const buildLegacyMigrationPatches = (world: EchoesWorld): import('../utils/echoe
                     name: entry.name.trim().slice(0, 32),
                     aliasTitle: aliasTitle || undefined,
                     role: entry.isPlayer ? 'protagonist' : 'supporting',
+                    isPlayer: !!entry.isPlayer,
                     fields: fields.slice(0, 20),
-                    sections: [{ heading: '背景', content: entry.detail.slice(0, 1000) }],
+                    sections: [{ heading: '背景', body: entry.detail.slice(0, 1000) }],
+                    tags: [],
                 },
             },
         };
@@ -346,7 +348,6 @@ const buildLegacyMigrationPatches = (world: EchoesWorld): import('../utils/echoe
             data: {
                 kind: 'lore_codex',
                 entry: {
-                    id: `${id}-e`,
                     term: fact.trim().slice(0, 24),
                     category,
                     summary: fact.trim().slice(0, 300),
@@ -1821,7 +1822,7 @@ const EchoesApp: React.FC = () => {
         if (!hasStructuredData && (normalized.cast?.trim() || normalized.hardFacts?.length || normalized.knownFacts?.length)) {
             const patches = buildLegacyMigrationPatches(normalized);
             if (patches.length > 0) {
-                const migrated = applyMechanicPatches(normalized.mechanics ?? [], patches, now);
+                const migrated = applyMechanicPatches(normalized.mechanics ?? [], patches, Date.now());
                 const migratedWorld = { ...normalized, mechanics: migrated };
                 setActiveWorld(migratedWorld);
                 void DB.saveEchoesWorld(migratedWorld);
