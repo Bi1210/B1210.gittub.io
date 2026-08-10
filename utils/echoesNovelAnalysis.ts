@@ -856,7 +856,7 @@ export function validateNovelAnalysis(analysis: unknown): NovelAnalysisValidatio
     validateStringArray(analysis.contentWarnings, 'contentWarnings', errors);
     validateStringArray(analysis.missingInformation, 'missingInformation', errors);
     validateStringArray(analysis.analysisWarnings, 'analysisWarnings', errors);
-    if (analysis.analysisWarnings?.length) warnings.push(...stringList(analysis.analysisWarnings, MAX_LIST_ITEMS, MAX_SHORT_TEXT_CHARS));
+    if (Array.isArray(analysis.analysisWarnings) && analysis.analysisWarnings.length) warnings.push(...stringList(analysis.analysisWarnings, MAX_LIST_ITEMS, MAX_SHORT_TEXT_CHARS));
     if (Array.isArray(analysis.unsupportedMechanics) && analysis.unsupportedMechanics.length) {
         warnings.push('存在未注册机制，必须在接入组件前继续人工确认。');
     }

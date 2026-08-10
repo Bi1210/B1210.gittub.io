@@ -1171,14 +1171,15 @@ const McdMiniApp: React.FC<McdMiniAppProps> = ({ open, onClose, char, userProfil
             if (activeCodes.size > 0) {
                 const filtered: Record<string, { name?: string; currentPrice?: string }> = {};
                 for (const code of activeCodes) {
-                    if (fullMeals[code]) filtered[code] = fullMeals[code];
+                    const meal = fullMeals[code];
+                    if (meal && meal.name) filtered[code] = meal;
                 }
                 menuMealsForAI = filtered;
             }
         }
         onStateChange({
             open,
-            step,
+            step: step === 'success' ? undefined : step,
             orderType: ctx?.orderType ?? (orderType || undefined),
             storeCode: ctx?.storeCode,
             storeName: ctx?.storeName,
@@ -1238,7 +1239,7 @@ const McdMiniApp: React.FC<McdMiniAppProps> = ({ open, onClose, char, userProfil
             const { fixed, fixes } = autoFixProposalCodesByName([it], menuData.meals);
             if (fixes.length && fixed[0]?.code && menuData.meals[fixed[0].code]) {
                 realCode = fixed[0].code;
-                meal = menuData.meals[realCode];
+                if (realCode) meal = menuData.meals[realCode];
                 console.log(`🍔 [MCD-MiniApp] 客户端兜底修 code: '${it.code}' → '${realCode}' (${fixes[0].name})`);
             }
         }

@@ -22,6 +22,7 @@ import {
     type EchoesMechanicSource,
     type EchoesMechanicStatus,
     type EchoesMechanicTrigger,
+    type EchoesRankChange,
     type EchoesRelationshipEntry,
     type EchoesResourceEntry,
     type EchoesRuleEntry,
