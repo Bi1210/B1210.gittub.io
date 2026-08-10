@@ -23,8 +23,16 @@ const UUIDS = [
 ];
 const shortOf = (uuid: string) => uuid.slice(0, 8);
 
-// 排程接口把角色写的墙钟折成的绝对时刻（上海 2026-08-03 21:00 / 纽约同日 09:00）。
-const RESOLVED_ISO = '2026-08-03T13:00:00.000Z';
+// 排程接口把角色写的墙钟折成的绝对时刻（上海次日 21:00 / 纽约同日 09:00）。
+// 用相对「明天」而不是写死日期：写死的日期一旦过去超过 48h，pruneStaleTasks
+// （见 utils/amsg2Tasks.ts）会把这条一次性任务当过期任务清出清单，本组测试断言的
+// lastTasks(persisted) 就会读到空数组——这是纯粹的测试时间炸弹，不是业务代码的问题。
+const RESOLVED_ISO = (() => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCHours(13, 0, 0, 0);
+  return d.toISOString();
+})();
 
 // 模拟 React：updateCharacter 只记录落盘的 config，绝不回写 char——
 // 这样只有「session 自己兜住最新 config」才能让同轮后续调用读到累加结果。
