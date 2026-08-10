@@ -98,9 +98,12 @@ async function buildVapidJwt(audience: string, vapid: VapidContext): Promise<str
 
 // ---------- HKDF ----------
 async function hkdf(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, lengthBytes: number): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey('raw', ikm, { name: 'HKDF' }, false, ['deriveBits']);
+  // Uint8Array 在 Cloudflare Workers 运行时始终是合法 BufferSource；这里的类型不兼容
+  // 来自较新 DOM lib 把 BufferSource 收紧为要求 ArrayBuffer（而非 ArrayBufferLike），
+  // 用 as BufferSource 断言绕过，不改变任何运行时行为。
+  const key = await crypto.subtle.importKey('raw', ikm as BufferSource, { name: 'HKDF' }, false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt, info },
+    { name: 'HKDF', hash: 'SHA-256', salt: salt as BufferSource, info: info as BufferSource },
     key,
     lengthBytes * 8,
   );
@@ -120,7 +123,7 @@ async function encryptAes128Gcm(payload: Uint8Array, clientP256dh: Uint8Array, c
   // 2. Client public key
   const clientPubKey = await crypto.subtle.importKey(
     'raw',
-    clientP256dh,
+    clientP256dh as BufferSource,
     { name: 'ECDH', namedCurve: 'P-256' },
     false,
     [],
@@ -154,8 +157,8 @@ async function encryptAes128Gcm(payload: Uint8Array, clientP256dh: Uint8Array, c
   padded[payload.length] = 0x02;
 
   // 8. AES-GCM encrypt
-  const cekKey = await crypto.subtle.importKey('raw', cek, { name: 'AES-GCM' }, false, ['encrypt']);
-  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, cekKey, padded));
+  const cekKey = await crypto.subtle.importKey('raw', cek as BufferSource, { name: 'AES-GCM' }, false, ['encrypt']);
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce as BufferSource }, cekKey, padded as BufferSource));
 
   // 9. Header: salt(16) || rs(4 BE) || keyId-len(1) || keyId(ephemeralPub 65)
   const rs = 4096;
@@ -205,7 +208,7 @@ export async function sendPush(vapid: VapidContext, sub: PushSubscription, paylo
       'Urgency': 'high',
       'Authorization': `vapid t=${jwt}, k=${vapid.publicKeyB64u}`,
     },
-    body: encrypted,
+    body: encrypted as BodyInit,
   });
 
   const gone = res.status === 404 || res.status === 410;

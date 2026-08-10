@@ -103,11 +103,13 @@ export default defineConfig({
         secure: true,
         rewrite: () => '/v1/t2a_v2',
         // Route to 国服 / 海外 based on X-MiniMax-Region header sent by the client.
+        // 注：vite 内置的 http-proxy 类型定义没有声明 router，但底层 http-proxy-middleware
+        // 运行时确实支持这个字段；这里用 as any 绕过多余属性检查，不改变运行时行为。
         router: (req: { headers: Record<string, string | string[] | undefined> }) => {
           const region = String(req.headers['x-minimax-region'] || '').toLowerCase();
           return region === 'overseas' ? 'https://api.minimax.io' : 'https://api.minimaxi.com';
         },
-      },
+      } as any,
       '/api/minimax/get-voice': {
         target: 'https://api.minimaxi.com',
         changeOrigin: true,
@@ -117,7 +119,7 @@ export default defineConfig({
           const region = String(req.headers['x-minimax-region'] || '').toLowerCase();
           return region === 'overseas' ? 'https://api.minimax.io' : 'https://api.minimaxi.com';
         },
-      },
+      } as any,
       '/api/minimax/music': {
         target: 'https://api.minimaxi.com',
         changeOrigin: true,
@@ -127,7 +129,7 @@ export default defineConfig({
           const region = String(req.headers['x-minimax-region'] || '').toLowerCase();
           return region === 'overseas' ? 'https://api.minimax.io' : 'https://api.minimaxi.com';
         },
-      },
+      } as any,
       // 鱼声 Fish Audio TTS：转发到 https://api.fish.audio/v1/tts（返回二进制音频）
       '/api/fishaudio/tts': {
         target: 'https://api.fish.audio',

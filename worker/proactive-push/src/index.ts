@@ -13,6 +13,27 @@
 
 import { prepareVapid, sendPush, type VapidContext, type PushSubscription } from './webpush';
 
+// 最小 Cloudflare Workers 类型（避免依赖 @cloudflare/workers-types），与 worker/post-office 保持同一模式。
+interface D1Database {
+  prepare(q: string): D1PreparedStatement;
+  batch(s: D1PreparedStatement[]): Promise<unknown[]>;
+  exec(q: string): Promise<unknown>;
+}
+interface D1PreparedStatement {
+  bind(...a: unknown[]): D1PreparedStatement;
+  run(): Promise<unknown>;
+  first<T = unknown>(c?: string): Promise<T | null>;
+  all<T = unknown>(): Promise<{ results: T[] }>;
+}
+interface ExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+}
+interface ScheduledEvent {
+  scheduledTime: number;
+  cron: string;
+}
+
 interface Env {
   DB: D1Database;
   VAPID_PUBLIC_KEY: string;     // set via `wrangler secret put`
