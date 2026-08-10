@@ -16,7 +16,7 @@ import {
 import EchoesContentRenderer from '../components/echoes/EchoesContentRenderer';
 import EchoesApiSettings from '../components/echoes/EchoesApiSettings';
 import EchoesMechanicRenderer from '../components/echoes/EchoesMechanicRenderer';
-import { applyMechanicPatches, getMechanicCatalogForPrompt } from '../utils/echoesMechanics';
+import { applyMechanicPatches, getMechanicCatalogForPrompt, stableHash } from '../utils/echoesMechanics';
 import type { EchoesMechanicInstance } from '../utils/echoesMechanicsTypes';
 import type { EchoesMechanicActionRequest } from '../utils/echoesMechanicActionsTypes';
 import { applyEchoesMechanicAction, buildEchoesMechanicActionContext, normalizeEchoesMechanicActionRequest, prepareEchoesMechanicAction } from '../utils/echoesMechanicActions';
@@ -262,6 +262,117 @@ const parseCastEntries = (cast: string, playerIdentity: string): Array<{ name: s
     });
 
     return result;
+};
+
+/**
+ * 把老存档里的自由文本人物/世界志一次性转换成 cast_roster / lore_codex mechanic patch。
+ *
+ * 调用条件：world.mechanics 里尚不存在任何 cast_roster 或 lore_codex 实例。
+ * 只在 openWorld 里执行一次，执行后立即持久化，后续 AI 按正常流程维护，不会重复触发。
+ */
+const LORE_KEYWORD_MAP: Array<{ keywords: string[]; category: import('../utils/echoesMechanicsTypes').EchoesLoreCategory }> = [
+    { keywords: ['地点', '地方', '城市', '王国', '国家', '地区', '区域', '世界', '大陆', '村', '镇', '城', '宫', '殿', '塔', '森林', '山', '海', '河', '岛'], category: 'place' },
+    { keywords: ['势力', '组织', '派系', '派别', '公会', '门派', '宗门', '家族', '帝国', '联盟', '军队', '教会', '学院', '协会', '队', '团', '社'], category: 'faction' },
+    { keywords: ['历史', '时间', '年', '纪元', '时代', '事件', '战争', '大战', '革命', '起义', '灾难', '传说', '古代', '过去'], category: 'timeline' },
+    { keywords: ['魔法', '技能', '能力', '法术', '系统', '规则', '机制', '力量', '天赋', '属性', '等级', '境界', '修炼', '功法', '道', '法', '气', '灵'], category: 'concept' },
+    { keywords: ['物品', '道具', '武器', '装备', '宝物', '神器', '材料', '药', '丹', '符', '阵'], category: 'item' },
+];
+
+const classifyLoreText = (text: string): import('../utils/echoesMechanicsTypes').EchoesLoreCategory => {
+    for (const { keywords, category } of LORE_KEYWORD_MAP) {
+        if (keywords.some(kw => text.includes(kw))) return category;
+    }
+    return 'other';
+};
+
+const buildLegacyMigrationPatches = (world: EchoesWorld): import('../utils/echoesMechanicsTypes').EchoesMechanicPatch[] => {
+    const patches: import('../utils/echoesMechanicsTypes').EchoesMechanicPatch[] = [];
+    const now = Date.now();
+
+    // ── cast_roster：从 cast 文本 + playerIdentity 解析 ──
+    const castEntries = parseCastEntries(world.cast || '', world.playerIdentity || '');
+    castEntries.forEach(entry => {
+        const slugBase = entry.name.trim().slice(0, 16);
+        const id = `cast-${stableHash(slugBase)}`;
+        // 把 detail 文本拆成 key/value 字段
+        const fields: Array<{ label: string; value: string }> = [];
+        let aliasTitle = '';
+        entry.detail.split(/\n+/).forEach(line => {
+            const m = line.match(/^([^：:—–\-]{1,16})[：:\-—–]\s*(.+)$/);
+            if (m) {
+                const [, label, value] = m;
+                if (['别名', '称号', '代号', '英文名', '外号'].includes(label.trim())) {
+                    aliasTitle = value.trim().slice(0, 32);
+                } else {
+                    fields.push({ label: label.trim().slice(0, 20), value: value.trim().slice(0, 200) });
+                }
+            }
+        });
+        const mechanic: import('../utils/echoesMechanicsTypes').EchoesMechanicInstance = {
+            id,
+            kind: 'cast_roster',
+            source: 'system',
+            createdAt: now,
+            updatedAt: now,
+            data: {
+                kind: 'cast_roster',
+                characters: [{
+                    id: `${id}-char`,
+                    name: entry.name.trim().slice(0, 32),
+                    aliasTitle: aliasTitle || undefined,
+                    role: entry.isPlayer ? 'protagonist' : 'supporting',
+                    fields: fields.slice(0, 20),
+                    sections: [{ heading: '背景', content: entry.detail.slice(0, 1000) }],
+                }],
+            },
+        };
+        patches.push({ op: 'upsert', mechanic });
+    });
+
+    // ── lore_codex：从 hardFacts + knownFacts 提取 ──
+    const allFacts = [
+        ...(world.hardFacts || []),
+        ...(world.knownFacts || []),
+    ];
+    // 按分类聚合，每个 category 生成一个 lore_codex mechanic（条目数上限30）
+    const byCategory = new Map<import('../utils/echoesMechanicsTypes').EchoesLoreCategory, string[]>();
+    allFacts.forEach(fact => {
+        if (!fact || fact.trim().length < 4) return;
+        const cat = classifyLoreText(fact);
+        if (!byCategory.has(cat)) byCategory.set(cat, []);
+        byCategory.get(cat)!.push(fact.trim().slice(0, 300));
+    });
+
+    const CATEGORY_LABEL: Record<import('../utils/echoesMechanicsTypes').EchoesLoreCategory, string> = {
+        place: '地点', faction: '势力', timeline: '历史', concept: '概念', item: '物品', other: '设定',
+    };
+
+    byCategory.forEach((facts, category) => {
+        const id = `lore-legacy-${category}`;
+        const entries: Array<{ id: string; term: string; category: import('../utils/echoesMechanicsTypes').EchoesLoreCategory; summary: string; tags: string[] }> =
+            facts.slice(0, 30).map((fact, i) => ({
+                id: `${id}-${i}`,
+                term: fact.slice(0, 24),
+                category,
+                summary: fact.slice(0, 300),
+                tags: [],
+            }));
+        const mechanic: import('../utils/echoesMechanicsTypes').EchoesMechanicInstance = {
+            id,
+            kind: 'lore_codex',
+            source: 'system',
+            createdAt: now,
+            updatedAt: now,
+            data: {
+                kind: 'lore_codex',
+                categoryLabel: CATEGORY_LABEL[category],
+                entries,
+            },
+        };
+        patches.push({ op: 'upsert', mechanic });
+    });
+
+    return patches;
 };
 
 /**
@@ -1716,6 +1827,21 @@ const EchoesApp: React.FC = () => {
         setActiveTab('story');
         setShowQuickTools(false);
         setSourceVisible(false);
+
+        // 一次性迁移：老存档里没有任何 cast_roster/lore_codex 数据时，
+        // 把已有的自由文本人物/世界志自动转换为结构化 mechanic，持久化后不再重复触发。
+        const hasStructuredData = normalized.mechanics?.some(
+            m => m.kind === 'cast_roster' || m.kind === 'lore_codex'
+        );
+        if (!hasStructuredData && (normalized.cast?.trim() || normalized.hardFacts?.length || normalized.knownFacts?.length)) {
+            const patches = buildLegacyMigrationPatches(normalized);
+            if (patches.length > 0) {
+                const migrated = applyMechanicPatches(normalized.mechanics ?? [], patches, normalized.novelProfile, normalized.initialMechanics ?? []);
+                const migratedWorld = { ...normalized, mechanics: migrated };
+                setActiveWorld(migratedWorld);
+                void DB.saveEchoesWorld(migratedWorld);
+            }
+        }
     };
 
     // 最后一层运行时保险：即使旧构建、异常导入或外部状态绕过 normalizeWorld，

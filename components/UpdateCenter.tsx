@@ -116,9 +116,15 @@ const UpdateCenter: React.FC = () => {
             if (document.visibilityState === 'visible') void checkForUpdate();
         };
         document.addEventListener('visibilitychange', onVisible);
+        // 用户可能长时间停留在前台不切出去，仅靠 visibilitychange 会错过新版本；
+        // 定时轮询兜底，不依赖用户手动触发页面可见性变化。
+        const intervalId = window.setInterval(() => {
+            if (document.visibilityState === 'visible') void checkForUpdate();
+        }, 5 * 60 * 1000);
         return () => {
             cancelled = true;
             document.removeEventListener('visibilitychange', onVisible);
+            window.clearInterval(intervalId);
         };
     }, [checkForUpdate]);
 

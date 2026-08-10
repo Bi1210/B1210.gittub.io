@@ -77,7 +77,8 @@ const STATUSES = new Set<EchoesMechanicStatus>(['active', 'hidden', 'completed',
 const TRIGGERS = new Set<EchoesMechanicTrigger>(['manual', 'scene', 'chapter_start', 'chapter_end', 'choice', 'event', 'always']);
 const SOURCES = new Set<EchoesMechanicSource>(['user', 'ai', 'system']);
 const text = (value: unknown, max = 2000): string => typeof value === 'string' ? value.trim().slice(0, max) : '';
-const stableHash = (value: string): string => {
+/** 导出给老存档一次性迁移（EchoesApp.tsx）用，确保同一份人名/条目内容始终生成同一个稳定 id。 */
+export const stableHash = (value: string): string => {
     let hash = 2166136261;
     for (let index = 0; index < value.length; index += 1) {
         hash ^= value.charCodeAt(index);
