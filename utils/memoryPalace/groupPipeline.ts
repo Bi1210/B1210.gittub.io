@@ -272,7 +272,7 @@ export async function processGroupNewMessages(
                     const vector = vectors[i];
 
                     // 与该成员已有记忆去重（同样的群记忆草稿可能跟以前的群记忆撞）
-                    const isDup = existingVectors.some(ev => cosineSimilarity(vector, ev.vector) > DEDUP_THRESHOLD);
+                    const isDup = existingVectors.some(ev => cosineSimilarity(vector as number[] | Float32Array, ev.vector as number[] | Float32Array) > DEDUP_THRESHOLD);
                     if (isDup) {
                         console.log(`♻️ [GroupPalace] ${member.name}：重复群记忆跳过 "${draft.content.slice(0, 30)}..."`);
                         continue;

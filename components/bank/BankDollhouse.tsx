@@ -27,7 +27,7 @@ const CUSTOM_FURNITURE_ASSET_KEY = 'bank_custom_furniture_assets_v1';
 
 type DecorTab = 'layout' | 'rename' | 'wallpaper' | 'furniture' | 'floor' | 'roomTexture';
 
-const DECOR_TAB_ICONS: Record<DecorTab, React.FC<{ size?: number; weight?: string; className?: string }>> = {
+const DECOR_TAB_ICONS: Record<DecorTab, React.ElementType> = {
     furniture: Armchair,
     wallpaper: PaintBucket,
     floor: SquaresFour,

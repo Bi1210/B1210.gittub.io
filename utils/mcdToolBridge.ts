@@ -343,7 +343,7 @@ export const buildMcdMiniAppContextBlock = (snap?: McdMiniAppSnapshot, userName:
     if (menuLoaded) {
         // 把套餐排前面 (人气热卖里的套餐 char 看着最先, 下意识更倾向推套餐)
         const COMBO_RE = /(套餐|单人餐|双人餐|全家桶|三件套|四件套|五件套|超值组合|节省组合)/;
-        const allEntries = Object.entries(snap.menuMeals).filter(([, m]: any) => m?.name);
+        const allEntries = Object.entries(snap.menuMeals ?? {}).filter(([, m]: any) => m?.name);
         const combos = allEntries.filter(([, m]: any) => COMBO_RE.test(String(m.name)));
         const singles = allEntries.filter(([, m]: any) => !COMBO_RE.test(String(m.name)));
         const ordered = [...combos, ...singles].slice(0, 100);

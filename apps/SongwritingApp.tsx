@@ -2312,7 +2312,7 @@ const SongwritingApp: React.FC = () => {
                                             <input
                                                 type="color"
                                                 value={item.color}
-                                                onChange={(e) => updateCustomCoverColor(item.position, e.target.value)}
+                                                onChange={(e) => updateCustomCoverColor(item.position as 'from' | 'via' | 'to', e.target.value)}
                                                 className="w-full h-full opacity-0 cursor-pointer"
                                             />
                                         </div>
