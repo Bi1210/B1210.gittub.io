@@ -2619,6 +2619,7 @@ export interface CharacterProfile {
   thinkingChainCustomColors?: {
     bg?: string;       // 卡片背景
     accent?: string;   // 边框/标题点缀
+    themeColor?: number; // Schedule Card 色相角度（0-360）
     text?: string;     // 正文颜色
   };
   /** 用户追加的思考提示词（不替换原生，只在最后追加一段「用户额外要求」） */

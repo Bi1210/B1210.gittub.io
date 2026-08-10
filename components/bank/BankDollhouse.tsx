@@ -54,7 +54,7 @@ interface CustomFurnitureAsset {
 interface Props {
     shopState: BankShopState;
     dollhouseState: DollhouseState;
-    onDollhouseChange: (updater: DollhouseState | ((prev: DollhouseState) => DollhouseState)) => Promise<void>;
+    onDollhouseChange: (updater: DollhouseState | ((prev: DollhouseState) => DollhouseState)) => Promise<DollhouseState | void>;
     characters: CharacterProfile[];
     userProfile: UserProfile;
     apiConfig: APIConfig;

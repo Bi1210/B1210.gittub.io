@@ -44,7 +44,7 @@ interface ChatHeaderShellProps {
     headerAlign?: 'left' | 'center';
     headerDensity?: 'compact' | 'default' | 'airy';
     statusStyle?: 'subtle' | 'pill' | 'dot';
-    chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
+    chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel' | 'liquidglass';
     /** 动森彩蛋模式：头部换成木质草绿栏。 */
     acnh?: boolean;
     /** 液态玻璃皮肤的内容滚动容器；非液态玻璃时不绑定监听。 */

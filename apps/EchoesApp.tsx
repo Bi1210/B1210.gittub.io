@@ -308,15 +308,18 @@ const buildLegacyMigrationPatches = (world: EchoesWorld): import('../utils/echoe
             }
         });
         const mechanic: import('../utils/echoesMechanicsTypes').EchoesMechanicInstance = {
+            schemaVersion: 1,
             id,
             kind: 'cast_roster',
+            title: entry.name.trim().slice(0, 32),
+            trigger: 'always',
+            status: 'active',
             source: 'system',
-            createdAt: now,
+            actions: [],
             updatedAt: now,
             data: {
                 kind: 'cast_roster',
                 character: {
-                    id: `${id}-char`,
                     name: entry.name.trim().slice(0, 32),
                     aliasTitle: aliasTitle || undefined,
                     role: entry.isPlayer ? 'protagonist' : 'supporting',
@@ -340,10 +343,14 @@ const buildLegacyMigrationPatches = (world: EchoesWorld): import('../utils/echoe
         const category = classifyLoreText(fact);
         const id = `lore-legacy-${i}-${stableHash(fact.slice(0, 32))}`;
         const mechanic: import('../utils/echoesMechanicsTypes').EchoesMechanicInstance = {
+            schemaVersion: 1,
             id,
             kind: 'lore_codex',
+            title: fact.trim().slice(0, 24),
+            trigger: 'always',
+            status: 'active',
             source: 'system',
-            createdAt: now,
+            actions: [],
             updatedAt: now,
             data: {
                 kind: 'lore_codex',
@@ -458,7 +465,7 @@ const PillPicker = <T extends string>({ options, value, onChange, cols = 2, acce
 const cloneState = (state: EchoesState): EchoesState => ({
     ...state,
     inventory: Array.isArray(state?.inventory) ? state.inventory.map(cleanText).filter(Boolean).slice(0, 100) : [],
-    resources: state?.resources && typeof state.resources === 'object' ? primitiveRecord(state.resources, false) : {},
+    resources: state?.resources && typeof state.resources === 'object' ? primitiveRecord(state.resources, false) as Record<string, string | number> : {},
     custom: state?.custom && typeof state.custom === 'object' ? primitiveRecord(state.custom, true) : {},
 });
 
@@ -951,7 +958,7 @@ const applyStatePatch = (before: EchoesState, raw: any): EchoesState => {
             next.inventory = next.inventory.filter(item => !removed.has(item));
         }
     }
-    if (patch.resources && typeof patch.resources === 'object') next.resources = { ...next.resources, ...primitiveRecord(patch.resources, false) };
+    if (patch.resources && typeof patch.resources === 'object') next.resources = { ...next.resources, ...(primitiveRecord(patch.resources, false) as Record<string, string | number>) };
     if (patch.custom && typeof patch.custom === 'object') next.custom = { ...next.custom, ...primitiveRecord(patch.custom, true) };
     return next;
 };
