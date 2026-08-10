@@ -4672,16 +4672,17 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       };
   }, []);
 
+  // handleBack 用 ref 读取最新状态，避免 220ms settle 延迟期间闭包捕获旧值导致双重触发。
   const handleBack = useCallback(() => {
       if (backHandlerRef.current) {
           const handled = backHandlerRef.current();
           if (handled) return;
       }
-      // Default: Close App
-      if (activeApp !== AppID.Launcher) {
-          closeApp();
+      // Default: Close App — use ref so stale closure never mis-fires after a state update
+      if (activeAppRef.current !== AppID.Launcher) {
+          setActiveApp(AppID.Launcher);
       }
-  }, [activeApp, closeApp]);
+  }, []);
 
   const value: OSContextType = {
     activeApp,
