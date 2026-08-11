@@ -32,7 +32,6 @@ import type { EchoesCrossoverConfig, EchoesCrossoverRole, EchoesCanonPolicy, Ech
 import type { ParsedNovel } from '../utils/echoesNovelTypes';
 import { createEchoesNovelProfile } from '../utils/echoesNovelProfile';
 import { listWorldPackages, getWorldPackageById } from '../worldPackages/registry';
-import { requestAIValidated } from '../utils/echoesAIValidator';
 import { detectAndApplyDeviation, buildDeviationSystemPrompt } from '../utils/echoesDeviationDetector';
 import { trackEvents, buildEventHintForAI, getEventProgressSummary } from '../utils/echoesCrossoverEventTracker';
 import { generateEventsAndTimeline, confirmAndFinalize, createWizardState, updateDraft, nextStep, prevStep, validateStep } from '../utils/echoesWorldCrossoverWizard';
@@ -54,6 +53,7 @@ const FORMAT_LABELS: Record<EchoesFormat, string> = {
 const DEFAULT_FORMATS: EchoesFormat[] = [...ALL_FORMATS];
 
 const DEFAULT_LABELS = {
+    storyTab: '故事', hubTab: '资料',
     people: '人物', quests: '任务', clues: '线索', inventory: '物品',
     chapters: '章节', saves: '存档', time: '时间', location: '地点',
 };
@@ -1484,7 +1484,7 @@ const EchoesApp: React.FC = () => {
                 
                 if (withEvents.error) {
                     console.error('[穿书] 事件生成失败:', withEvents.error);
-                    addToast(`事件生成失败: ${withEvents.error}`, 'warning');
+                    addToast(`事件生成失败: ${withEvents.error}`, 'info');
                 } else if (withEvents.timeline) {
                     // 保存到全局状态，createWorld 时直接使用
                     const finalized = confirmAndFinalize(withEvents);
@@ -1586,7 +1586,7 @@ const EchoesApp: React.FC = () => {
             
             // ✅ 字数验证与自动重试（最多3次）
             let data: any;
-            let raw: string;
+            let raw: string = '';
             let payloadRaw: any;
             let payload: any;
             let retryCount = 0;
@@ -1612,7 +1612,7 @@ const EchoesApp: React.FC = () => {
                             continue;
                         } else {
                             console.warn(`[Echoes] 重试${maxRetries}次后仍不符合字数要求，接受当前输出`);
-                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'warning');
+                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'info');
                         }
                     } else if (retryCount > 0) {
                         addToast(`开场字数验证通过（${validation.actual}字）`, 'success');
@@ -1763,7 +1763,7 @@ const EchoesApp: React.FC = () => {
 
             // ✅ 字数验证与自动重试（最多3次）
             let data: any;
-            let raw: string;
+            let raw: string = '';
             let payloadRaw: any;
             let payload: any;
             let retryCount = 0;
@@ -1789,7 +1789,7 @@ const EchoesApp: React.FC = () => {
                             continue;
                         } else {
                             console.warn(`[Echoes] 重试${maxRetries}次后仍不符合字数要求，接受当前输出`);
-                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'warning');
+                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'info');
                         }
                     } else if (retryCount > 0) {
                         addToast(`字数验证通过（${validation.actual}字）`, 'success');
@@ -2482,7 +2482,7 @@ const EchoesApp: React.FC = () => {
             {settingsSection === 'experience' && <div className="space-y-4">{renderExperienceSettings()}</div>}
             {settingsSection === 'appearance' && <div className="space-y-4">
             {/* 配置应用范围 */}
-            <div className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.cardBg }}>
+            <div className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.panel }}>
                 <span className="mb-2 block text-[11px] font-bold opacity-70">配置应用范围</span>
                 <p className="mb-3 text-[10px] leading-relaxed opacity-50">
                     修改外观后，可以选择只应用到当前世界，或设为所有新建世界的默认配置。

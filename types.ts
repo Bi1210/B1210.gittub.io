@@ -4,6 +4,7 @@ import type { EchoesChoice, EchoesEndingTrigger } from './utils/echoesTurnProtoc
 
 import type { EchoesMechanicInstance, EchoesMechanicPatch } from './utils/echoesMechanicsTypes';
 import type { EchoesNovelProfile } from './utils/echoesNovelProfileTypes';
+import type { EchoesCrossoverConfig, EchoesCrossoverTimelineState } from './utils/echoesCrossoverTypes';
 
 export enum AppID {
   Launcher = 'launcher',
@@ -3651,6 +3652,10 @@ export interface EchoesWorld {
     updatedAt: number;
     lastPlayedAt: number;
     version: number;
+    /** 穿书配置（仅在穿书模式世界中存在） */
+    crossoverConfig?: EchoesCrossoverConfig;
+    /** 穿书时间线与偏离度追踪（仅在穿书模式世界中存在） */
+    crossoverTimeline?: EchoesCrossoverTimelineState;
 }
 
 export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
