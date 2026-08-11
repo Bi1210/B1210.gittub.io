@@ -2668,7 +2668,7 @@ const EchoesApp: React.FC = () => {
                 </button>;
             })}
         </nav>
-        {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}{renderQuickTools()}
+        {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}{renderQuickTools()}{renderApiSettings()}
         {confirmRestart && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" onClick={() => setConfirmRestart(false)}>
             <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl p-5" style={{ background: palette.panel, color: palette.text }}>
                 <h3 className="mb-2 font-bold">回到世界序幕？</h3>
