@@ -3399,6 +3399,70 @@ export interface EchoesProtocolConfig {
     customInstructions: string;
 }
 
+// === 第一阶段：全局配置架构 ===
+
+/**
+ * Echoes UI 配置的全局基础值。
+ * 所有用户都有一份全局配置，作为应用程序级默认值。
+ * 可通过"设为全局默认"选项从任何世界覆盖全局配置。
+ */
+export interface EchoesUIGlobalConfig {
+    layout: EchoesLayout;
+    theme: EchoesTheme;
+    accent: string;
+    fontFamily: 'serif' | 'sans' | 'mono';
+    fontScale: number;
+    lineHeight: number;
+    customBg?: string;
+    customPanel?: string;
+    customText?: string;
+    customMuted?: string;
+    customBorder?: string;
+    customCss?: string;
+    showSuggestions: boolean;
+    showStatus: boolean;
+    showFacts: boolean;
+    showSourceToggle: boolean;
+    typewriterEffect?: boolean;
+    showMoodCard?: boolean;
+    labels: EchoesLabels;
+}
+
+/**
+ * 单个世界对该世界的 UI 配置覆盖。
+ * 仅存储与全局配置不同的字段，节省空间。
+ */
+export interface EchoesUIWorldOverride {
+    layout?: EchoesLayout;
+    theme?: EchoesTheme;
+    accent?: string;
+    fontFamily?: 'serif' | 'sans' | 'mono';
+    fontScale?: number;
+    lineHeight?: number;
+    customBg?: string;
+    customPanel?: string;
+    customText?: string;
+    customMuted?: string;
+    customBorder?: string;
+    customCss?: string;
+    showSuggestions?: boolean;
+    showStatus?: boolean;
+    showFacts?: boolean;
+    showSourceToggle?: boolean;
+    typewriterEffect?: boolean;
+    showMoodCard?: boolean;
+    adaptiveLocked?: boolean;
+    labels?: EchoesLabels;
+}
+
+/**
+ * Echoes UI 配置应用范围
+ */
+export type EchoesUIConfigScope = 'global' | 'current';
+
+/**
+ * 向后兼容层：EchoesUIProfile 现在是全局 + 世界覆盖的合并结果
+ */
 export interface EchoesUIProfile {
     layout: EchoesLayout;
     theme: EchoesTheme;
@@ -3528,7 +3592,10 @@ export interface EchoesWorld {
     qualityMode: EchoesQualityMode;
     allowedFormats: EchoesFormat[];
     formattingPreference: 'adaptive' | 'novel' | 'records' | 'technical';
+    /** 运行时合并结果（全局 + 覆盖），向后兼容旧数据 */
     ui: EchoesUIProfile;
+    /** 新格式：单世界 UI 覆盖（仅存储与全局配置不同的字段） */
+    uiOverride?: EchoesUIWorldOverride;
     /** 世界封面图：base64 data URL 或 minis:// 资源 URL，在世界库卡片和封面页显示。 */
     coverImage?: string;
     /** 世界创建时的基线，用于重建老存档与分支回退。 */

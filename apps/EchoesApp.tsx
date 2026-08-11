@@ -12,6 +12,7 @@ import {
     EchoesContentBlock, EchoesFormat, EchoesLayout, EchoesMode, EchoesQualityMode, EchoesState,
     EchoesTheme, EchoesTurn, EchoesUIProfile, EchoesWorld, EchoesWritingGuide, EchoesProtocolConfig,
     ApiPreset, APIConfig, EchoesApiConfig, EchoesApiCallLogEntry, EchoesHighlight,
+    EchoesUIGlobalConfig, EchoesUIWorldOverride, EchoesUIConfigScope,
 } from '../types';
 import EchoesContentRenderer from '../components/echoes/EchoesContentRenderer';
 import EchoesApiSettings from '../components/echoes/EchoesApiSettings';
@@ -57,6 +58,25 @@ const DEFAULT_UI: EchoesUIProfile = {
     showFacts: false, showSourceToggle: true, typewriterEffect: true, showMoodCard: true,
     adaptiveLocked: false, labels: DEFAULT_LABELS,
 };
+
+/**
+ * 合并全局配置 + 世界覆盖 + 旧格式兼容。
+ * 优先级：legacyUI（旧格式完整配置） > globalConfig + worldOverride（新格式分层） > DEFAULT_UI
+ */
+function mergeUIConfigs(
+    globalConfig: EchoesUIGlobalConfig | undefined,
+    worldOverride: EchoesUIWorldOverride | undefined,
+    legacyUI: EchoesUIProfile | undefined
+): EchoesUIProfile {
+    // 旧格式优先：如果世界有完整 ui 字段，直接使用（向后兼容）
+    if (legacyUI) {
+        return { ...DEFAULT_UI, ...legacyUI };
+    }
+
+    // 新格式：全局 + 覆盖
+    const base = globalConfig ? { ...DEFAULT_UI, ...globalConfig } : DEFAULT_UI;
+    return worldOverride ? { ...base, ...worldOverride } : base;
+}
 
 const DEFAULT_WRITING_GUIDE: EchoesWritingGuide = {
     style: '', tone: '', perspective: '', minWords: 0, maxWords: 0, contextRounds: 8, authorInstructions: '',
@@ -830,7 +850,7 @@ const normalizeUIProfile = (raw: unknown): EchoesUIProfile => {
     };
 };
 
-const normalizeWorld = (raw: any): EchoesWorld => {
+const normalizeWorld = (raw: any, globalConfig?: EchoesUIGlobalConfig): EchoesWorld => {
     const rawSource = raw && typeof raw === 'object' ? raw : {};
     // Normalize imported/legacy objects through the same fail-closed storage
     // boundary before deriving any runtime cursor. This keeps explicit null or
@@ -840,7 +860,10 @@ const normalizeWorld = (raw: any): EchoesWorld => {
     const formats = Array.isArray(source.allowedFormats)
         ? source.allowedFormats.filter((item: unknown): item is EchoesFormat => ALL_FORMATS.includes(item as EchoesFormat))
         : [...DEFAULT_FORMATS];
-    const ui = normalizeUIProfile(source.ui);
+    
+    // 使用分层配置合并：全局 + 覆盖 + 旧格式兼容
+    const ui = mergeUIConfigs(globalConfig, source.uiOverride, source.ui);
+    
     const state = normalizeState(rawState, {
         time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {},
     });
@@ -1005,6 +1028,7 @@ const EchoesApp: React.FC = () => {
     const [confirmRestart, setConfirmRestart] = useState(false);
     const [worlds, setWorlds] = useState<EchoesWorld[]>([]);
     const [activeWorld, setActiveWorld] = useState<EchoesWorld | null>(null);
+    const [globalUIConfig, setGlobalUIConfig] = useState<EchoesUIGlobalConfig | undefined>(undefined);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [input, setInput] = useState('');
@@ -1063,8 +1087,12 @@ const EchoesApp: React.FC = () => {
     const loadWorlds = useCallback(async () => {
         setLoading(true);
         try {
-            const list = await DB.getAllEchoesWorlds();
-            const normalizedWorlds = list.map(normalizeWorld).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
+            const [list, globalConfig] = await Promise.all([
+                DB.getAllEchoesWorlds(),
+                DB.getEchoesUIGlobalConfig(),
+            ]);
+            setGlobalUIConfig(globalConfig);
+            const normalizedWorlds = list.map(w => normalizeWorld(w, globalConfig)).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
             setWorlds(normalizedWorlds);
             if (!initialWorldBootRef.current && normalizedWorlds.length > 0) {
                 initialWorldBootRef.current = true;
@@ -1458,7 +1486,10 @@ const EchoesApp: React.FC = () => {
             playerIdentity: (draft.identity.trim() || crossoverIdentity) + (spoilerNote ? `\n\n【穿书剧透设置】${spoilerNote}` : ''),
             cast: draft.cast.trim(),
             mode: draft.mode, qualityMode: draft.qualityMode, allowedFormats: [...DEFAULT_FORMATS], formattingPreference: draft.formatting,
-            ui: finalUI,
+            uiOverride: adaptiveHint
+                ? { theme: adaptiveHint.theme!, accent: adaptiveHint.accent!, layout: adaptiveHint.layout!, fontFamily: adaptiveHint.fontFamily! }
+                : undefined,
+            ui: finalUI,  // 运行时合并结果，由 normalizeWorld 计算
             coverImage: draft.coverImage || undefined,
             initialState: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
             initialHardFacts: [],
@@ -1530,7 +1561,8 @@ const EchoesApp: React.FC = () => {
             // 浅比较关键字段：绝大多数 UI/设置修改只会改少量字段，turns 和 blocks 引用变了才更新
             const same = prev.turns === updated.turns && prev.state === updated.state
                 && prev.hardFacts === updated.hardFacts && prev.knownFacts === updated.knownFacts
-                && prev.director === updated.director && prev.ui === updated.ui && prev.writingGuide === updated.writingGuide && prev.protocol === updated.protocol
+                && prev.director === updated.director && prev.ui === updated.ui && prev.uiOverride === updated.uiOverride
+                && prev.writingGuide === updated.writingGuide && prev.protocol === updated.protocol
                 && prev.mode === updated.mode && prev.qualityMode === updated.qualityMode
                 && prev.allowedFormats === updated.allowedFormats && prev.continuitySummary === updated.continuitySummary;
             return same ? prev : updated;
@@ -1824,14 +1856,42 @@ const EchoesApp: React.FC = () => {
         }, 800);
     };
 
-    const updateUI = async (patch: Partial<EchoesUIProfile>) => {
+    const updateUI = async (patch: Partial<EchoesUIProfile>, scope: EchoesUIConfigScope = 'current') => {
         if (!activeWorld || generatingRef.current) return;
-        const nextUI = normalizeUIProfile({
-            ...activeWorld.ui,
-            ...patch,
-            labels: { ...activeWorld.ui.labels, ...(patch.labels || {}) },
-        });
-        await persistWorld({ ...activeWorld, ui: nextUI });
+        
+        if (scope === 'global') {
+            // 应用到全局配置
+            const nextGlobal = normalizeUIProfile({
+                ...DEFAULT_UI,
+                ...globalUIConfig,
+                ...patch,
+                labels: { 
+                    ...DEFAULT_UI.labels, 
+                    ...(globalUIConfig?.labels || {}),
+                    ...(patch.labels || {}) 
+                },
+            }) as EchoesUIGlobalConfig;
+            await DB.saveEchoesUIGlobalConfig(nextGlobal);
+            setGlobalUIConfig(nextGlobal);
+            // 刷新当前世界的合并结果
+            const refreshedWorld = normalizeWorld(activeWorld, nextGlobal);
+            setActiveWorld(refreshedWorld);
+            setWorlds(prev => prev.map(w => w.id === refreshedWorld.id ? refreshedWorld : w));
+        } else {
+            // 应用到当前世界的覆盖层
+            const currentOverride: EchoesUIWorldOverride = activeWorld.uiOverride || {};
+            const nextOverride: EchoesUIWorldOverride = {
+                ...currentOverride,
+                ...patch,
+                labels: { 
+                    ...(currentOverride.labels || {}),
+                    ...(patch.labels || {}) 
+                },
+            };
+            const updatedWorld = { ...activeWorld, uiOverride: nextOverride };
+            const normalized = normalizeWorld(updatedWorld, globalUIConfig);
+            await persistWorld(normalized);
+        }
     };
 
     const handlePackageSelect = (pkgId: string) => {
@@ -2228,6 +2288,38 @@ const EchoesApp: React.FC = () => {
             </div>
             {settingsSection === 'experience' && <div className="space-y-4">{renderExperienceSettings()}</div>}
             {settingsSection === 'appearance' && <div className="space-y-4">
+            {/* 配置应用范围 */}
+            <div className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.cardBg }}>
+                <span className="mb-2 block text-[11px] font-bold opacity-70">配置应用范围</span>
+                <p className="mb-3 text-[10px] leading-relaxed opacity-50">
+                    修改外观后，可以选择只应用到当前世界，或设为所有新建世界的默认配置。
+                </p>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={async () => {
+                            const currentUI = activeWorld.ui;
+                            await updateUI(currentUI, 'current');
+                            addToast('已应用到当前世界', 'success');
+                        }}
+                        className="flex-1 rounded-lg border px-3 py-2 text-[11px] font-medium transition hover:bg-black/5"
+                        style={{ borderColor: palette.border }}
+                    >
+                        应用到此世界
+                    </button>
+                    <button 
+                        onClick={async () => {
+                            const currentUI = activeWorld.ui;
+                            await updateUI(currentUI, 'global');
+                            addToast('已设为全局默认', 'success');
+                        }}
+                        className="flex-1 rounded-lg border px-3 py-2 text-[11px] font-medium transition hover:bg-black/5"
+                        style={{ borderColor: ui.accent, color: ui.accent }}
+                    >
+                        设为全局默认
+                    </button>
+                </div>
+            </div>
+            
             {/* 世界封面图上传/更换 */}
             <div>
                 <span className="mb-2 block font-bold opacity-70">世界封面图</span>

@@ -9,7 +9,8 @@ import {
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
-    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask, EchoesWorld
+    WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask, EchoesWorld,
+    EchoesUIGlobalConfig, EchoesUIWorldOverride, EchoesUIConfigScope
 } from '../types';
 import { exportPostOfficeLocal, importPostOfficeLocal } from './vrWorld/postOffice';
 import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
@@ -51,6 +52,7 @@ const STORE_SOCIAL_POSTS = 'social_posts';
 const STORE_COURSES = 'courses';
 const STORE_GAMES = 'games';
 const STORE_ECHOES_WORLDS = 'echoes_worlds'; // Echoes 独立世界 / 回合 / UI 存档
+const STORE_ECHOES_UI_CONFIG = 'echoes_ui_config'; // Echoes 全局 UI 配置（单例，key='global'）
 const STORE_WORLDBOOKS = 'worldbooks'; 
 const STORE_NOVELS = 'novels'; 
 const STORE_BANK_TX = 'bank_transactions';
@@ -284,6 +286,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_COURSES, { keyPath: 'id' });
       createStore(STORE_GAMES, { keyPath: 'id' }); 
       createStore(STORE_ECHOES_WORLDS, { keyPath: 'id' });
+      createStore(STORE_ECHOES_UI_CONFIG, { keyPath: 'id' }); // 全局 UI 配置
       createStore(STORE_WORLDBOOKS, { keyPath: 'id' }); 
       createStore(STORE_NOVELS, { keyPath: 'id' });
 
@@ -1981,6 +1984,28 @@ export const DB = {
       tx.objectStore(STORE_ECHOES_WORLDS).delete(id);
   },
 
+  getEchoesUIGlobalConfig: async (): Promise<EchoesUIGlobalConfig | undefined> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_ECHOES_UI_CONFIG)) return undefined;
+      return new Promise((resolve, reject) => {
+          const request = db.transaction(STORE_ECHOES_UI_CONFIG, 'readonly')
+              .objectStore(STORE_ECHOES_UI_CONFIG).get('global');
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  saveEchoesUIGlobalConfig: async (config: EchoesUIGlobalConfig): Promise<void> => {
+      const db = await openDB();
+      const tx = db.transaction(STORE_ECHOES_UI_CONFIG, 'readwrite');
+      tx.objectStore(STORE_ECHOES_UI_CONFIG).put({ id: 'global', ...config });
+      await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('全局 UI 配置写入失败'));
+          tx.onabort = () => reject(tx.error || new Error('全局 UI 配置写入中止'));
+      });
+  },
+
   getAllWorldbooks: async (): Promise<Worldbook[]> => {
       const db = await openDB();
       if (!db.objectStoreNames.contains(STORE_WORLDBOOKS)) return [];
@@ -2613,23 +2638,6 @@ export const DB = {
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error || new Error('clearApiRequestCapture transaction failed'));
           tx.onabort = () => reject(tx.error || new Error('clearApiRequestCapture transaction aborted'));
-      });
-  },
-
-  patchApiRequestCapture: async (id: string, patch: Record<string, unknown>): Promise<boolean> => {
-      const db = await openDB();
-      if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return false;
-      return new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE_API_CALL_LOG, 'readwrite');
-          const store = tx.objectStore(STORE_API_CALL_LOG);
-          const req = store.get('one-shot-capture');
-          req.onsuccess = () => {
-              const existing = req.result;
-              if (!existing || existing.capture?.id !== id) { resolve(false); return; }
-              store.put({ id: 'one-shot-capture', capture: { ...existing.capture, ...patch } });
-              resolve(true);
-          };
-          req.onerror = () => reject(req.error);
       });
   },
 
