@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Archive, ArrowLeft, ArrowRight, BookOpenText, BookmarkSimple, BracketsCurly, CaretDoubleDown, CaretDoubleUp, CaretDown, CaretUp, Check, CircleNotch, Compass,
-    Copy, Eye, FileText, GearSix, GitBranch, Globe, ImageSquare, Lightbulb, MapPin, Palette,
+    Copy, Eye, FileText, GearSix, GitBranch, Globe, ImageSquare, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
     X,
 } from '@phosphor-icons/react';
@@ -27,11 +27,17 @@ import { buildEchoesTurnOutputInstruction, parseEchoesTurnOutput } from '../util
 import { sanitizeEchoesWorldForStorage } from '../utils/echoesWorldStorage';
 import { analyzeNovelDocument, prepareNovelAnalysis } from '../utils/echoesNovelWorkflow';
 import { readNovelFile } from '../utils/echoesNovelParser';
-import { createCrossoverConfigDraft, setCrossoverConfigConfirmed } from '../utils/echoesCrossover';
+import { createCrossoverConfigDraft, setCrossoverConfigConfirmed, getUpcomingCanonEvents } from '../utils/echoesCrossover';
 import type { EchoesCrossoverConfig, EchoesCrossoverRole, EchoesCanonPolicy, EchoesSpoilerMode } from '../utils/echoesCrossoverTypes';
 import type { ParsedNovel } from '../utils/echoesNovelTypes';
 import { createEchoesNovelProfile } from '../utils/echoesNovelProfile';
 import { listWorldPackages, getWorldPackageById } from '../worldPackages/registry';
+import { requestAIValidated } from '../utils/echoesAIValidator';
+import { detectAndApplyDeviation, buildDeviationSystemPrompt } from '../utils/echoesDeviationDetector';
+import { trackEvents, buildEventHintForAI, getEventProgressSummary } from '../utils/echoesCrossoverEventTracker';
+import { generateEventsAndTimeline, confirmAndFinalize, createWizardState, updateDraft, nextStep, prevStep, validateStep } from '../utils/echoesWorldCrossoverWizard';
+import type { DeviationDetectionContext } from '../utils/echoesDeviationDetector';
+import type { EventTrackerContext } from '../utils/echoesCrossoverEventTracker';
 
 
 const ALL_FORMATS: EchoesFormat[] = [
@@ -48,7 +54,6 @@ const FORMAT_LABELS: Record<EchoesFormat, string> = {
 const DEFAULT_FORMATS: EchoesFormat[] = [...ALL_FORMATS];
 
 const DEFAULT_LABELS = {
-    storyTab: '本纪', hubTab: '查看',
     people: '人物', quests: '任务', clues: '线索', inventory: '物品',
     chapters: '章节', saves: '存档', time: '时间', location: '地点',
 };
@@ -1244,6 +1249,7 @@ const EchoesApp: React.FC = () => {
 `4. 每当确立一个值得记录的世界设定条目（地点/势力/纪年事件/名词/道具），用 { "op": "upsert", "mechanic": { "id": "lore-<稳定slug>", "kind": "lore_codex", "trigger": "always", "data": { "entry": { "term": "...", "category": "place|faction|timeline|concept|item|other", "summary": "一两句话概括", "details": "可选详细说明", "tags": [] } } } } 追加到 mechanicPatches；category 必须是你自己准确判断的分类，不是关键词猜测。\n` +
 `5. 不要在每一轮都重复发送所有已存在的角色和条目；只在出现新角色/新条目，或已有角色/条目信息发生实质变化时才发对应 patch。\n` +
 `6. 玩家角色本人也应该有一条 cast_roster（isPlayer: true），但只在玩家身份首次明确或发生重大变化时创建/更新。\n` +
+(world.crossoverTimeline ? `【穿书系统状态】\n${buildDeviationSystemPrompt(world.crossoverTimeline.deviation, world.crossoverConfig!.canonPolicy, getUpcomingCanonEvents(world.crossoverTimeline.events, 3))}\n${buildEventHintForAI(world.crossoverTimeline, 3)}\n` : '') +
 `【最近剧情】\n${formatHistory(world) || '这是故事的开端。'}\n\n` +
 `【本次玩家行动】\n${action || '（生成开场）'}\n${action === '（顺其发展）' ? '这是自然推进：玩家没有执行具体动作，请根据当前世界状态、在场实体目标和未解决事件让世界自行走一步，但仍停在可回应的位置。\n' : ''}` +
 (localActionText ? `【已由本地组件确认的动作】\n${localActionText}\n该动作已经在机制账本中执行。你只能描写叙事反应，不得重复执行、撤销、覆盖或替换该本地状态变化。\n` : '') +
@@ -1421,11 +1427,43 @@ const EchoesApp: React.FC = () => {
                 cast: result.analysis.mainCharacters.map(c => `${c.name}: ${c.identity}`).join('\n')
             }));
             
-            setCrossoverDraft(createCrossoverConfigDraft({
+            const initialCrossoverDraft = createCrossoverConfigDraft({
                 source: { kind: 'uploaded', title: result.analysis.title || parsed.fileName, fileName: parsed.fileName, format: parsed.format, parserVersion: parsed.parserVersion, chapterCount: parsed.chapterCount, normalizedCharCount: parsed.normalizedCharCount },
                 role: 'replace_character',
                 canonPolicy: 'guided'
-            }));
+            });
+            setCrossoverDraft(initialCrossoverDraft);
+            
+            // ✅ 自动生成穿书事件列表（后台异步，不阻塞用户）
+            try {
+                addToast('正在生成原著事件列表...', 'info');
+                const wizardState = createWizardState();
+                const withDraft = updateDraft(wizardState, initialCrossoverDraft);
+                
+                const requesterForEvents = async (prompt: string, maxTokens: number, context: string) => {
+                    const data = await requestAI(prompt, maxTokens, context);
+                    return extractContent(data) || '';
+                };
+                
+                const withEvents = await generateEventsAndTimeline(withDraft, requesterForEvents);
+                
+                if (withEvents.error) {
+                    console.error('[穿书] 事件生成失败:', withEvents.error);
+                    addToast(`事件生成失败: ${withEvents.error}`, 'warning');
+                } else if (withEvents.timeline) {
+                    // 保存到全局状态，createWorld 时直接使用
+                    const finalized = confirmAndFinalize(withEvents);
+                    if (finalized) {
+                        setCrossoverDraft(finalized.config);
+                        // 存储 timeline 到临时变量，createWorld 时读取
+                        (window as any).__echoesCrossoverTimeline = finalized.timeline;
+                        addToast(`已生成 ${withEvents.events.length} 个原著事件`, 'success');
+                    }
+                }
+            } catch (eventError) {
+                console.error('[穿书] 事件生成异常:', eventError);
+            }
+            
             addToast('原著分析完成', 'success');
         } catch (err: any) {
             addToast(`导入失败: ${err.message}`, 'error');
@@ -1539,7 +1577,14 @@ const EchoesApp: React.FC = () => {
                 hardFacts: afterHardFacts, mechanics: afterMechanics,
                 knownFacts: payload.newKnownFacts.map(cleanText).filter(Boolean).slice(-200),
                 updatedAt: Date.now(), lastPlayedAt: Date.now(),
+                // ✅ 保存穿书配置和时间线（如果有）
+                ...(confirmedCrossover ? { crossoverConfig: confirmedCrossover } : {}),
+                ...((window as any).__echoesCrossoverTimeline ? { crossoverTimeline: (window as any).__echoesCrossoverTimeline } : {}),
             };
+            // 清理临时变量
+            if ((window as any).__echoesCrossoverTimeline) {
+                delete (window as any).__echoesCrossoverTimeline;
+            }
             const safeWorld = sanitizeEchoesWorldForStorage(world) as EchoesWorld;
             await DB.saveEchoesWorld(safeWorld);
             setWorlds(prev => [safeWorld, ...prev]); setActiveWorld(safeWorld); setView('cover'); setFreshTurnId(turn.id);
@@ -1691,7 +1736,7 @@ const EchoesApp: React.FC = () => {
                 afterMechanics: finalMechanics,
                 createdAt: now,
             };
-            const safeWorld = sanitizeEchoesWorldForStorage({
+            let worldToSave = {
                 ...baseWorld,
                 state: after,
                 director: afterDirector,
@@ -1700,7 +1745,50 @@ const EchoesApp: React.FC = () => {
                 hardFacts: nextHardFacts,
                 knownFacts: Array.from(new Set([...baseWorld.knownFacts, ...known])).slice(-200),
                 mechanics: finalMechanics,
-            }) as EchoesWorld;
+            };
+            
+            // ✅ 穿书系统处理
+            if (baseWorld.crossoverTimeline && baseWorld.crossoverConfig) {
+                try {
+                    // 1. 偏离度检测
+                    const deviationContext: DeviationDetectionContext = {
+                        playerAction: narrativeAction,
+                        aiResponse: raw,
+                        reachedEvents: baseWorld.crossoverTimeline.events.filter(e => e.status === 'reached' || e.status === 'altered'),
+                        upcomingEvents: getUpcomingCanonEvents(baseWorld.crossoverTimeline.events, 5),
+                        currentChapterIndex: baseWorld.crossoverTimeline.reachedChapterIndex,
+                    };
+                    
+                    const { updated: newDeviation, analysis } = detectAndApplyDeviation(
+                        deviationContext,
+                        baseWorld.crossoverTimeline.deviation
+                    );
+                    
+                    // 2. 事件追踪
+                    const eventContext: EventTrackerContext = {
+                        currentChapterIndex: baseWorld.crossoverTimeline.reachedChapterIndex,
+                        currentTurnContent: raw,
+                        recentActions: [narrativeAction],
+                    };
+                    
+                    const newTimeline = trackEvents(baseWorld.crossoverTimeline, eventContext);
+                    
+                    // 3. 更新世界
+                    worldToSave.crossoverTimeline = {
+                        ...newTimeline,
+                        deviation: newDeviation,
+                    };
+                    
+                    // 4. 显示偏离提示（可选）
+                    if (analysis) {
+                        console.log(`[穿书] 偏离检测：${analysis.summary} (${analysis.impact})`);
+                    }
+                } catch (crossoverError) {
+                    console.error('[穿书] 系统处理失败，跳过本轮更新:', crossoverError);
+                }
+            }
+            
+            const safeWorld = sanitizeEchoesWorldForStorage(worldToSave) as EchoesWorld;
             await persistWorld(safeWorld);
             setFreshTurnId(turn.id);
         } catch (error: any) { addToast(`这一轮生成失败：${error?.message || '请稍后重试'}`, 'error'); }
@@ -2282,49 +2370,11 @@ const EchoesApp: React.FC = () => {
             <div className="grid grid-cols-2 gap-2">
                 {([
                     ['appearance', '外观与阅读', Palette],
-                    ['mechanics', '机制样式', Lightbulb],
                     ['experience', '剧情与生成', Sparkle],
                     ['writing', '写作与叙事', PencilSimple],
                     ['data', 'API、存档与数据', Archive],
                 ] as const).map(([key, label, Icon]) => <button key={key} type="button" onClick={() => setSettingsSection(key)} className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-[11px] transition" style={{ borderColor: settingsSection === key ? ui.accent : palette.border, background: settingsSection === key ? `${ui.accent}12` : `${palette.panel}70`, color: settingsSection === key ? ui.accent : palette.text }}><Icon size={15} /><span className="font-semibold">{label}</span></button>)}
             </div>
-            {settingsSection === 'mechanics' && <div className="space-y-4">
-                <p className="text-[10.5px] leading-relaxed opacity-50">为每种机制类型设置独立的配色和图标，让「查看」页面更直观易读。</p>
-                <div className="space-y-3">
-                    {(['resource_panel', 'character_card', 'inventory', 'quest_log', 'relationship_map', 'timeline', 'rules_panel', 'live_feed', 'leaderboard', 'achievement_list', 'weather_widget', 'dialogue_tree', 'map_widget', 'clue_board', 'skill_tree', 'merchant_shop'] as const).map(type => {
-                        const currentStyle = ui.mechanicStyles?.[type];
-                        return (
-                            <div key={type} className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.cardBg }}>
-                                <div className="mb-2 flex items-center justify-between">
-                                    <span className="text-[11px] font-bold opacity-70">{type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-                                    <div className="flex items-center gap-2">
-                                        <input 
-                                            type="color" 
-                                            value={currentStyle?.color || ui.accent} 
-                                            onChange={e => void updateUI({ mechanicStyles: { ...ui.mechanicStyles, [type]: { ...currentStyle, color: e.target.value } } })}
-                                            className="h-6 w-6 rounded border-0 cursor-pointer"
-                                            title="配色"
-                                        />
-                                        <input 
-                                            type="text" 
-                                            value={currentStyle?.icon || ''} 
-                                            onChange={e => void updateUI({ mechanicStyles: { ...ui.mechanicStyles, [type]: { ...currentStyle, icon: e.target.value } } })}
-                                            placeholder="🎯"
-                                            className="w-12 rounded-lg border bg-transparent px-2 py-1 text-center text-[11px] outline-none"
-                                            style={{ borderColor: palette.border }}
-                                            title="Emoji 图标"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 rounded-lg p-2" style={{ background: `${currentStyle?.color || ui.accent}12`, color: currentStyle?.color || ui.accent }}>
-                                    <span className="text-base">{currentStyle?.icon || '📋'}</span>
-                                    <span className="text-[10px] font-medium">{type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} 示例</span>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>}
             {settingsSection === 'experience' && <div className="space-y-4">{renderExperienceSettings()}</div>}
             {settingsSection === 'appearance' && <div className="space-y-4">
             {/* 配置应用范围 */}
@@ -2584,8 +2634,8 @@ const EchoesApp: React.FC = () => {
             ? 'radial-gradient(ellipse at 80% 0%, rgba(129,140,248,.14), transparent 50%), radial-gradient(ellipse at 0% 80%, rgba(244,114,182,.07), transparent 48%)'
             : `radial-gradient(ellipse at 80% 0%, ${ui.accent}12, transparent 52%)`;
     const tabItems = [
-        { key: 'story' as const, label: ui.labels.storyTab, icon: BookOpenText },
-        { key: 'hub' as const, label: ui.labels.hubTab, icon: BookmarkSimple },
+        { key: 'story' as const, label: '本纪', icon: BookOpenText },
+        { key: 'hub' as const, label: '查看', icon: BookmarkSimple },
         { key: 'relations' as const, label: ui.labels.people, icon: UsersThree },
         { key: 'lore' as const, label: '世界志', icon: Globe },
         { key: 'highlights' as const, label: '回想', icon: Archive },
