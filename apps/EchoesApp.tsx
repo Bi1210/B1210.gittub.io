@@ -1846,6 +1846,7 @@ const EchoesApp: React.FC = () => {
             mode: pkg.defaultMode,
             qualityMode: pkg.defaultQualityMode,
             formatting: 'adaptive',
+            coverImage: '',
         });
         setDraftWritingGuide({ ...DEFAULT_WRITING_GUIDE, ...pkg.writingGuide });
         if (pkg.protocolOverrides) {
