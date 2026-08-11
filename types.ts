@@ -3529,6 +3529,8 @@ export interface EchoesWorld {
     allowedFormats: EchoesFormat[];
     formattingPreference: 'adaptive' | 'novel' | 'records' | 'technical';
     ui: EchoesUIProfile;
+    /** 世界封面图：base64 data URL 或 minis:// 资源 URL，在世界库卡片和封面页显示。 */
+    coverImage?: string;
     /** 世界创建时的基线，用于重建老存档与分支回退。 */
     initialState: EchoesState;
     initialHardFacts: string[];
