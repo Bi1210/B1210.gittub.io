@@ -2356,7 +2356,10 @@ const EchoesApp: React.FC = () => {
                     </article>;
                 })}
             </div>
-            {activeMechanics.length > 0 && <div className="mt-2">{activeMechanics.map(mechanic => <EchoesMechanicRenderer key={mechanic.id} mechanic={mechanic} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}</div>}
+            {activeMechanics.length > 0 && <div className="mt-8 border-t pt-8" style={{ borderColor: `${ui.accent}12` }}>
+                <p className="mb-4 text-[10px] uppercase tracking-[.18em] opacity-40 text-center" style={{ color: ui.accent }}>World Nodes · 当前节点</p>
+                {activeMechanics.map(mechanic => <EchoesMechanicRenderer key={mechanic.id} mechanic={mechanic} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}
+            </div>}
             {generating && <div className="my-6 flex items-center justify-center gap-2 rounded-2xl py-3 text-xs" style={{ color: palette.muted, background: `${palette.panel}88` }}><CircleNotch className="animate-spin" size={15} style={{ color: ui.accent }} />世界正在回应……</div>}
         </div>
     </>;
@@ -2624,20 +2627,20 @@ const EchoesApp: React.FC = () => {
             {activeTab === 'story' && !isNearLatest && <button type="button" onClick={scrollToLatest} className="sticky right-0 top-3 z-10 ml-auto mr-3 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold shadow-sm backdrop-blur" style={{ borderColor: `${ui.accent}45`, color: ui.accent, background: `${palette.panel}e8` }}><ArrowRight size={13} className="rotate-90" />回到最新</button>}
             {activeTab === 'story' ? storyView : activeTab === 'lore' ? loreView : activeTab === 'relations' ? relationsView : highlightsView}
         </main>
-        {activeTab === 'story' && <div className="pointer-events-none absolute right-2 z-20 flex flex-col items-center justify-center gap-2" style={{ top: 'calc(var(--safe-top) + 6.5rem)', bottom: 'calc(var(--safe-bottom) + 7rem)' }}>
+        {activeTab === 'story' && <div className="pointer-events-none absolute right-2 z-20 flex flex-col items-center justify-center gap-1.5" style={{ top: 'calc(var(--safe-top) + 6.5rem)', bottom: 'calc(var(--safe-bottom) + 7rem)' }}>
             {[
-                { label: '回到故事顶部', disabled: isAtStoryTop, icon: <CaretDoubleUp size={22} weight="bold" />, action: () => scrollToStoryEdge('top') },
-                { label: '上一回合', disabled: isAtStoryTop, icon: <CaretUp size={22} weight="bold" />, action: () => scrollToTurn('previous') },
-                { label: '下一回合', disabled: isNearLatest, icon: <CaretDown size={22} weight="bold" />, action: () => scrollToTurn('next') },
-                { label: '回到故事底部', disabled: isNearLatest, icon: <CaretDoubleDown size={22} weight="bold" />, action: () => scrollToStoryEdge('bottom') },
+                { label: '回到故事顶部', disabled: isAtStoryTop, icon: <CaretDoubleUp size={18} weight="bold" />, action: () => scrollToStoryEdge('top') },
+                { label: '上一回合', disabled: isAtStoryTop, icon: <CaretUp size={18} weight="bold" />, action: () => scrollToTurn('previous') },
+                { label: '下一回合', disabled: isNearLatest, icon: <CaretDown size={18} weight="bold" />, action: () => scrollToTurn('next') },
+                { label: '回到故事底部', disabled: isNearLatest, icon: <CaretDoubleDown size={18} weight="bold" />, action: () => scrollToStoryEdge('bottom') },
             ].map(button => <button
                 key={button.label}
                 type="button"
                 aria-label={button.label}
                 disabled={button.disabled}
                 onClick={button.action}
-                className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full border shadow-sm backdrop-blur-xl transition active:scale-95 disabled:opacity-35"
-                style={{ color: palette.text, borderColor: palette.border, background: `${palette.panel}e8`, boxShadow: `0 5px 18px ${ui.accent}12, inset 0 1px 0 rgba(255,255,255,.55)` }}
+                className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border shadow-sm backdrop-blur-xl transition active:scale-95 disabled:opacity-35"
+                style={{ color: palette.text, borderColor: palette.border, background: `${palette.panel}e8`, boxShadow: `0 4px 12px ${ui.accent}08, inset 0 1px 0 rgba(255,255,255,.55)` }}
             >{button.icon}</button>)}
         </div>}
         {actionDock}
