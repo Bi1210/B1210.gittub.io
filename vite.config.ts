@@ -61,12 +61,17 @@ const readGeneratedManifest = (): { version?: string; date?: string; title?: str
     return {};
   }
 };
+
+// 在构建或开发时动态读取最新的 public/version.json，确保历史版本数据不被遗漏
 const generatedManifest = readGeneratedManifest();
 const generatedVersion = generatedManifest.version || '1.3.0';
 const generatedDate = generatedManifest.date || new Date().toISOString().slice(0, 10);
 const generatedTitle = generatedManifest.title || 'SullyOS 自动构建更新';
 const generatedChanges = Array.isArray(generatedManifest.changes) ? generatedManifest.changes.filter((item): item is string => typeof item === 'string') : [];
-const generatedHistory = Array.isArray(generatedManifest.history) ? generatedManifest.history : [];
+// 确保 history 数组被正确注入，包含所有历史版本
+const generatedHistory = Array.isArray(generatedManifest.history) ? generatedManifest.history.filter(item => {
+  return item && typeof item === 'object' && typeof (item as any).version === 'string' && typeof (item as any).date === 'string' && typeof (item as any).title === 'string' && Array.isArray((item as any).changes);
+}) : [];
 
 export default defineConfig({
   plugins: [
