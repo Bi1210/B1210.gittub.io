@@ -3545,6 +3545,8 @@ export interface EchoesWorld {
     novelProfile?: EchoesNovelProfile;
     /** "回想"tab：用户手动标记的正文片段。可选：缺省视为空数组（老存档兼容）。 */
     highlights?: EchoesHighlight[];
+    /** 视觉变体标签，用于机制渲染器的特殊样式定制（如 'wanxiang_terminal'）。 */
+    visualVariant?: string;
     /** Trusted normalized mechanics cursor for this world. */
     mechanics: EchoesMechanicInstance[];
     initialMechanics: EchoesMechanicInstance[];

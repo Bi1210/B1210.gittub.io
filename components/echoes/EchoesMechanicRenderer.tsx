@@ -36,6 +36,7 @@ type EchoesMechanicRendererProps = {
     accent: string;
     palette: EchoesMechanicPalette;
     busy?: boolean;
+    visualVariant?: string;
     onAction: (request: EchoesMechanicActionRequest) => void;
 };
 
@@ -252,7 +253,7 @@ const GenericPanel: React.FC<{ data: EchoesGenericPanelData; accent: string; mut
     </div>)}
 </div>;
 
-export const EchoesMechanicRenderer: React.FC<EchoesMechanicRendererProps> = ({ mechanic, accent, palette, busy = false, onAction }) => {
+export const EchoesMechanicRenderer: React.FC<EchoesMechanicRendererProps> = ({ mechanic, accent, palette, busy = false, visualVariant, onAction }) => {
     const [expanded, setExpanded] = useState(true);
     const data = mechanic.data;
     const renderedActions = useMemo(() => {
@@ -277,15 +278,33 @@ export const EchoesMechanicRenderer: React.FC<EchoesMechanicRendererProps> = ({ 
     const isEvent = mechanic.kind === 'event_card' && data.kind === 'event_card';
     const isRegisteredInteractive = getMechanicDefinition(mechanic.kind)?.interactive === true;
     const isInteractive = isRegisteredInteractive && actionCount > 0;
-    return <section className="echoes-mechanic-node my-5 overflow-hidden rounded-2xl border" style={{ borderColor: `${accent}38`, background: `linear-gradient(145deg, ${accent}0d, ${palette.panel}d9)` }}>
+    const isWanxiangTerminal = visualVariant === 'wanxiang_terminal' || visualVariant === 'terminal';
+
+    return <section className="echoes-mechanic-node my-5 overflow-hidden rounded-2xl border" style={{ 
+        borderColor: isWanxiangTerminal ? `${accent}66` : `${accent}38`, 
+        background: isWanxiangTerminal 
+            ? `linear-gradient(165deg, ${accent}15, #000 70%)` 
+            : `linear-gradient(145deg, ${accent}0d, ${palette.panel}d9)`,
+        boxShadow: isWanxiangTerminal ? `0 0 20px ${accent}15, inset 0 0 1px ${accent}30` : 'none'
+    }}>
         <button type="button" onClick={() => setExpanded(value => !value)} className="flex w-full items-center gap-2 px-4 py-3 text-left" aria-expanded={expanded}>
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg" style={{ color: accent, background: `${accent}18` }}>{isEvent ? <WarningCircle size={14} /> : <Sparkle size={14} weight="fill" />}</span>
-            <span className="min-w-0 flex-1"><span className="block text-[9px] uppercase tracking-[.16em]" style={{ color: accent }}>{kindLabel}</span><span className="mt-0.5 block truncate text-[13px] font-semibold">{mechanic.title}</span></span>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg" style={{ 
+                color: isWanxiangTerminal ? '#000' : accent, 
+                background: isWanxiangTerminal ? accent : `${accent}18`,
+                boxShadow: isWanxiangTerminal ? `0 0 10px ${accent}50` : 'none'
+            }}>{isEvent ? <WarningCircle size={14} /> : <Sparkle size={14} weight="fill" />}</span>
+            <span className="min-w-0 flex-1">
+                <span className="block text-[9px] uppercase tracking-[.16em]" style={{ color: isWanxiangTerminal ? accent : accent, opacity: isWanxiangTerminal ? 1 : 1 }}>{kindLabel}</span>
+                <span className="mt-0.5 block truncate text-[13px] font-semibold" style={{ 
+                    color: isWanxiangTerminal ? accent : 'inherit',
+                    textShadow: isWanxiangTerminal ? `0 0 8px ${accent}aa` : 'none'
+                }}>{mechanic.title}</span>
+            </span>
             {busy && <CircleNotch size={13} className="shrink-0 animate-spin" style={{ color: accent }} />}
-            <CaretDown size={15} className="shrink-0 transition-transform" style={{ color: palette.muted, transform: expanded ? 'rotate(180deg)' : undefined }} />
+            <CaretDown size={15} className="shrink-0 transition-transform" style={{ color: isWanxiangTerminal ? accent : palette.muted, transform: expanded ? 'rotate(180deg)' : undefined }} />
         </button>
-        {expanded && <div className="border-t px-4 pb-4 pt-3" style={{ borderColor: `${accent}20` }}>
-            {mechanic.description && <p className="mb-3 text-[10.5px] leading-relaxed" style={{ color: palette.muted }}>{mechanic.description}</p>}
+        {expanded && <div className="border-t px-4 pb-4 pt-3" style={{ borderColor: isWanxiangTerminal ? `${accent}33` : `${accent}20` }}>
+            {mechanic.description && <p className="mb-3 text-[10.5px] leading-relaxed" style={{ color: isWanxiangTerminal ? accent : palette.muted, opacity: isWanxiangTerminal ? 0.7 : 1 }}>{mechanic.description}</p>}
             {data.kind === 'task_panel' && <div className="space-y-2">{data.tasks.slice(0, 8).map(task => <TaskRow key={task.id} task={task} accent={accent} muted={palette.muted} />)}</div>}
             {data.kind === 'rules_panel' && (data.rules.some(rule => rule.known)
                 ? <div className="space-y-2">{data.rules.filter(rule => rule.known).slice(0, 12).map(rule => <RuleRow key={rule.id} rule={rule} accent={accent} muted={palette.muted} />)}</div>
