@@ -115,6 +115,28 @@ function chapterTitle(chapter: NovelChapter): string {
     return chapter.title || `Chapter ${chapter.index + 1}`;
 }
 
+/**
+ * Chapters whose text range overlaps any assembled context segment. Used as
+ * an attribution fallback when a segment carries no chapterId (e.g. an
+ * 'opening' segment whose source range happens to cover whole chapters in a
+ * short document, which makes chapter candidates lose their uncovered range
+ * in selectNovelContextSegments and get silently dropped).
+ */
+export function chapterIdsOverlappingSegments(
+    document: ParsedNovel,
+    segments: readonly NovelContextSegment[],
+): string[] {
+    if (!segments.length || !document.chapters.length) return [];
+    const ids: string[] = [];
+    for (const chapter of document.chapters) {
+        const chapterStart = Math.min(chapter.titleStartOffset, chapter.startOffset);
+        const chapterEnd = Math.max(chapter.endOffset, chapter.titleEndOffset);
+        const overlaps = segments.some((segment) => segment.startOffset < chapterEnd && segment.endOffset > chapterStart);
+        if (overlaps) ids.push(chapter.id);
+    }
+    return ids;
+}
+
 function countOccurrences(haystack: string, needle: string, limit = 64): Occurrence[] {
     if (!needle || !haystack || limit <= 0) return [];
     const result: Occurrence[] = [];

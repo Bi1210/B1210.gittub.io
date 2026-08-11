@@ -36,9 +36,12 @@ describe('Echoes world storage ledger sanitizer', () => {
         const saved = sanitizeEchoesWorldForStorage(baseWorld()) as any;
         expect(saved.hardFacts).toEqual([]);
         expect(saved.initialHardFacts).toEqual([]);
-        expect(saved.mechanics.map((item: any) => item.kind)).toEqual(['task_panel']);
         expect(saved.turns[0].beforeMechanics.map((item: any) => item.kind)).toEqual(['task_panel']);
         expect(saved.turns[0].afterMechanics.map((item: any) => item.kind)).toEqual(['task_panel', 'task_panel']);
+        // Top-level saved.mechanics is the post-replay cursor, i.e. the last
+        // turn's afterMechanics — it must match afterMechanics exactly, not
+        // the pre-patch baseline.
+        expect(saved.mechanics.map((item: any) => item.kind)).toEqual(['task_panel', 'task_panel']);
         expect(saved.turns[0].hardFactsRecorded).toBe(true);
         expect(JSON.stringify(saved)).not.toContain('RAW_');
     });

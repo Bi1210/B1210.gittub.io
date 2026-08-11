@@ -40,7 +40,9 @@ describe('Echoes mechanic registry', () => {
         expect(mechanic.kind).toBe('trending_board');
         if (mechanic.data.kind === 'trending_board') {
             expect(mechanic.data.entries.map(item => item.id)).toEqual(['a', 'b']);
-            expect(mechanic.data.entries[0].heat).toBe(40);
+            // heat is simply clamped into [0, 100] by normalizeData, not rescaled
+            // relative to the highest entry — 80 stays 80, 120 clamps to 100.
+            expect(mechanic.data.entries[0].heat).toBe(80);
             expect(mechanic.data.entries[1].heat).toBe(100);
         }
         expect(mechanic.actions[0].label).toBe('查看详情');

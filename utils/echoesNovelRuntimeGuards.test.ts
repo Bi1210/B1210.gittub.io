@@ -126,7 +126,9 @@ describe('Echoes novel runtime mechanic gate', () => {
         ], profile, current);
         expect(result.patches).toEqual([{ op: 'remove', id: 'task-1' }]);
         expect(result.rejectedPatches).toHaveLength(2);
-        expect(result.warnings.join(' ')).toContain('clear');
+        // The specific 'clear' rejection reason lives on the per-patch
+        // rejectedPatches entry, not the aggregated warnings summary.
+        expect(result.rejectedPatches.some((patch) => patch.operation === 'clear' && patch.reason.includes('clear'))).toBe(true);
     });
 
     it('accepts JSON-string input deterministically and strips forbidden fields', () => {

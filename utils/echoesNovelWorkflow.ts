@@ -1,4 +1,5 @@
 import {
+    chapterIdsOverlappingSegments,
     getNovelContext,
 } from './echoesNovelContext';
 import {
@@ -80,10 +81,17 @@ function sourceFromDocument(
     options: NovelAnalysisWorkflowOptions,
 ): NovelAnalysisSourceOptions {
     const source = options.source ?? {};
+    const taggedChapterIds = context.segments
+        .map((segment) => segment.chapterId)
+        .filter((value): value is string => typeof value === 'string');
+    // Segments like 'opening' carry no chapterId even when their source range
+    // covers one or more whole chapters (this happens for short documents,
+    // where the opening window can absorb every chapter's uncovered range in
+    // selectNovelContextSegments). Fall back to offset-overlap attribution so
+    // sourceChapterIds still reflects which chapters the assembled context
+    // actually spans.
     const chapterIds = uniqueStrings(
-        context.segments
-            .map((segment) => segment.chapterId)
-            .filter((value): value is string => typeof value === 'string'),
+        taggedChapterIds.length ? taggedChapterIds : chapterIdsOverlappingSegments(document, context.segments),
         120,
     );
     const chapterTitles = uniqueStrings(
