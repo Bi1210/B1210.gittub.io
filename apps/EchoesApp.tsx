@@ -30,7 +30,6 @@ import { createCrossoverConfigDraft, setCrossoverConfigConfirmed } from '../util
 import type { EchoesCrossoverConfig, EchoesCrossoverRole, EchoesCanonPolicy, EchoesSpoilerMode } from '../utils/echoesCrossoverTypes';
 import type { ParsedNovel } from '../utils/echoesNovelTypes';
 import { createEchoesNovelProfile } from '../utils/echoesNovelProfile';
-import { listWorldPackages, getWorldPackageById } from '../worldPackages/registry';
 
 
 const ALL_FORMATS: EchoesFormat[] = [
@@ -309,18 +308,15 @@ const buildLegacyMigrationPatches = (world: EchoesWorld): import('../utils/echoe
             }
         });
         const mechanic: import('../utils/echoesMechanicsTypes').EchoesMechanicInstance = {
-            schemaVersion: 1,
             id,
             kind: 'cast_roster',
-            title: entry.name.trim().slice(0, 32),
-            trigger: 'always',
-            status: 'active',
             source: 'system',
-            actions: [],
+            createdAt: now,
             updatedAt: now,
             data: {
                 kind: 'cast_roster',
                 character: {
+                    id: `${id}-char`,
                     name: entry.name.trim().slice(0, 32),
                     aliasTitle: aliasTitle || undefined,
                     role: entry.isPlayer ? 'protagonist' : 'supporting',
@@ -344,14 +340,10 @@ const buildLegacyMigrationPatches = (world: EchoesWorld): import('../utils/echoe
         const category = classifyLoreText(fact);
         const id = `lore-legacy-${i}-${stableHash(fact.slice(0, 32))}`;
         const mechanic: import('../utils/echoesMechanicsTypes').EchoesMechanicInstance = {
-            schemaVersion: 1,
             id,
             kind: 'lore_codex',
-            title: fact.trim().slice(0, 24),
-            trigger: 'always',
-            status: 'active',
             source: 'system',
-            actions: [],
+            createdAt: now,
             updatedAt: now,
             data: {
                 kind: 'lore_codex',
@@ -466,7 +458,7 @@ const PillPicker = <T extends string>({ options, value, onChange, cols = 2, acce
 const cloneState = (state: EchoesState): EchoesState => ({
     ...state,
     inventory: Array.isArray(state?.inventory) ? state.inventory.map(cleanText).filter(Boolean).slice(0, 100) : [],
-    resources: state?.resources && typeof state.resources === 'object' ? primitiveRecord(state.resources, false) as Record<string, string | number> : {},
+    resources: state?.resources && typeof state.resources === 'object' ? primitiveRecord(state.resources, false) : {},
     custom: state?.custom && typeof state.custom === 'object' ? primitiveRecord(state.custom, true) : {},
 });
 
@@ -959,7 +951,7 @@ const applyStatePatch = (before: EchoesState, raw: any): EchoesState => {
             next.inventory = next.inventory.filter(item => !removed.has(item));
         }
     }
-    if (patch.resources && typeof patch.resources === 'object') next.resources = { ...next.resources, ...(primitiveRecord(patch.resources, false) as Record<string, string | number>) };
+    if (patch.resources && typeof patch.resources === 'object') next.resources = { ...next.resources, ...primitiveRecord(patch.resources, false) };
     if (patch.custom && typeof patch.custom === 'object') next.custom = { ...next.custom, ...primitiveRecord(patch.custom, true) };
     return next;
 };
@@ -1023,8 +1015,7 @@ const EchoesApp: React.FC = () => {
     const [naturalProgressConfirmed, setNaturalProgressConfirmed] = useState(false);
     const [isNearLatest, setIsNearLatest] = useState(true);
     const [isAtStoryTop, setIsAtStoryTop] = useState(true);
-    const [creationMethod, setCreationMethod] = useState<'manual' | 'ai' | 'random' | 'novel' | 'package'>('manual');
-    const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
+    const [creationMethod, setCreationMethod] = useState<'manual' | 'ai' | 'random' | 'novel'>('manual');
     const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'] });
     const [aiIdea, setAiIdea] = useState('');
     // 随机生成世界的可选条件；全部留空即可一键随机，填了则作为 AI 生成的约束。
@@ -1417,9 +1408,6 @@ const EchoesApp: React.FC = () => {
         // 穿书导入：把 AI 分析结果、玩家的穿越身份/收束策略/剧透档位真正写入世界，
         // 而不是让向导填完的配置在创建时被丢弃退化成普通手动世界。
         const isNovelCrossover = creationMethod === 'novel' && !!novelAnalysis;
-        const isPackageMode = creationMethod === 'package' && !!selectedPackageId;
-        const selectedPackage = isPackageMode ? getWorldPackageById(selectedPackageId) : null;
-
         const novelProfile = isNovelCrossover
             ? createEchoesNovelProfile(novelAnalysis, {
                 source: { kind: 'uploaded', title: novelAnalysis.title || parsedNovelFile?.fileName, fileName: parsedNovelFile?.fileName },
@@ -1455,9 +1443,8 @@ const EchoesApp: React.FC = () => {
             ui: finalUI,
             initialState: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
             initialHardFacts: [],
-            initialMechanics: selectedPackage ? selectedPackage.initialMechanics : [],
-            mechanics: selectedPackage ? selectedPackage.initialMechanics : [],
-            visualVariant: selectedPackage?.visualVariant,
+            initialMechanics: [],
+            mechanics: [],
             initialDirector: normalizeDirector(DEFAULT_DIRECTOR),
             initialContinuitySummary: '',
             state: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
@@ -1779,28 +1766,6 @@ const EchoesApp: React.FC = () => {
         await persistWorld({ ...activeWorld, ui: nextUI });
     };
 
-    const handlePackageSelect = (pkgId: string) => {
-        const pkg = getWorldPackageById(pkgId);
-        if (!pkg) return;
-        setSelectedPackageId(pkgId);
-        setDraft({
-            title: pkg.name,
-            world: pkg.seed.worldSetting,
-            identity: pkg.seed.playerIdentity,
-            cast: pkg.seed.cast,
-            mode: pkg.defaultMode,
-            qualityMode: pkg.defaultQualityMode,
-            formatting: 'adaptive',
-        });
-        setDraftWritingGuide({ ...DEFAULT_WRITING_GUIDE, ...pkg.writingGuide });
-        if (pkg.protocolOverrides) {
-            setDraftProtocol({ ...DEFAULT_PROTOCOL, ...pkg.protocolOverrides });
-        }
-        setDraftUICustomized(false);
-        setCreateStep(2); // 选中后直接进下一步
-        addToast(`已加载世界包：${pkg.name}`, 'success');
-    };
-
     const updateMode = async (mode: EchoesMode) => {
         if (!activeWorld || activeWorld.mode === mode || generatingRef.current) return;
         await persistWorld({ ...activeWorld, mode });
@@ -1938,29 +1903,12 @@ const EchoesApp: React.FC = () => {
                     </div>
 
                     {createStep === 1 && <div className="animate-fade-in">
-                        <div className="mb-6 flex flex-wrap rounded-xl border border-white/10 bg-black/20 p-1">
-                            <button onClick={() => setCreationMethod('package')} className={`flex-1 rounded-lg py-2 text-[10px] font-bold transition ${creationMethod === 'package' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>📦 世界包</button>
-                            <button onClick={() => setCreationMethod('manual')} className={`flex-1 rounded-lg py-2 text-[10px] font-bold transition ${creationMethod === 'manual' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✍️ 手动</button>
-                            <button onClick={() => setCreationMethod('ai')} className={`flex-1 rounded-lg py-2 text-[10px] font-bold transition ${creationMethod === 'ai' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✨ 推演</button>
-                            <button onClick={() => setCreationMethod('random')} className={`flex-1 rounded-lg py-2 text-[10px] font-bold transition ${creationMethod === 'random' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>🎲 随机</button>
-                            <button onClick={() => setCreationMethod('novel')} className={`flex-1 rounded-lg py-2 text-[10px] font-bold transition ${creationMethod === 'novel' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>📖 穿书</button>
+                        <div className="mb-6 flex rounded-xl border border-white/10 bg-black/20 p-1">
+                            <button onClick={() => setCreationMethod('random')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'random' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>🎲 快速开始</button>
+                            <button onClick={() => setCreationMethod('manual')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'manual' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✍️ 手动</button>
+                            <button onClick={() => setCreationMethod('ai')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'ai' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>✨ AI 推演</button>
+                            <button onClick={() => setCreationMethod('novel')} className={`flex-1 rounded-lg py-2 text-[11px] font-bold transition ${creationMethod === 'novel' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/80'}`}>📖 穿书导入</button>
                         </div>
-
-                        {creationMethod === 'package' && <div className="mb-5 animate-fade-in space-y-3">
-                            <p className="text-[12px] text-white/70">选择预设的世界模板，快速加载设定与机制。</p>
-                            <div className="grid gap-3">
-                                {listWorldPackages().map(pkg => (
-                                    <button key={pkg.id} onClick={() => handlePackageSelect(pkg.id)} className={`flex items-start gap-4 rounded-2xl border p-4 text-left transition ${selectedPackageId === pkg.id ? 'bg-violet-500/20 border-violet-500/50' : 'bg-white/[.05] border-white/10 hover:bg-white/[.08]'}`}>
-                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/20 text-violet-300"><Sparkle size={20} weight="fill" /></div>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center justify-between"><span className="text-sm font-bold text-white/90">{pkg.name}</span>{selectedPackageId === pkg.id && <Check size={14} className="text-violet-400" />}</div>
-                                            <p className="mt-1 line-clamp-2 text-[10.5px] leading-relaxed text-white/40">{pkg.description}</p>
-                                            <div className="mt-2.5 flex flex-wrap gap-1.5">{pkg.genreTags.slice(0, 3).map(tag => <span key={tag} className="rounded-full bg-white/5 px-2 py-0.5 text-[9px] text-white/30">{tag}</span>)}</div>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>}
 
                         {creationMethod === 'random' && <div className="mb-5 animate-fade-in rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
                             <p className="mb-3 text-[12px] text-white/70">不用想好世界观，条件全部可选，留空即可一键随机；填了就当作约束。</p>
@@ -2356,7 +2304,7 @@ const EchoesApp: React.FC = () => {
                     </article>;
                 })}
             </div>
-            {activeMechanics.length > 0 && <div className="mt-2">{activeMechanics.map(mechanic => <EchoesMechanicRenderer key={mechanic.id} mechanic={mechanic} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}</div>}
+            {activeMechanics.length > 0 && <div className="mt-2">{activeMechanics.map(mechanic => <EchoesMechanicRenderer key={mechanic.id} mechanic={mechanic} accent={ui.accent} palette={palette} busy={generating} onAction={handleMechanicAction} />)}</div>}
             {generating && <div className="my-6 flex items-center justify-center gap-2 rounded-2xl py-3 text-xs" style={{ color: palette.muted, background: `${palette.panel}88` }}><CircleNotch className="animate-spin" size={15} style={{ color: ui.accent }} />世界正在回应……</div>}
         </div>
     </>;
@@ -2542,9 +2490,9 @@ const EchoesApp: React.FC = () => {
                 </div>
             )}
             
-            {(lastTurn?.choices?.length ?? 0) > 0 && !lastTurn.endingTriggered && (
+            {lastTurn?.choices?.length > 0 && !lastTurn.endingTriggered && (
                 <div className="mb-2 space-y-1.5">
-                    {lastTurn.choices?.map((choice: any) => (
+                    {lastTurn.choices.map((choice: any) => (
                         <button key={choice.id} disabled={choice.disabled || generating} onClick={() => void playAction(choice.label)} className="w-full flex items-center justify-between text-left p-3 rounded-xl border transition disabled:opacity-40" style={{ borderColor: `${ui.accent}30`, background: `${palette.panel}e0` }}>
                             <div className="flex-1 min-w-0">
                                 <span className="block text-[12.5px] font-bold" style={{ color: ui.accent }}>{choice.label}</span>
@@ -2668,7 +2616,7 @@ const EchoesApp: React.FC = () => {
                 </button>;
             })}
         </nav>
-        {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}{renderQuickTools()}
+        {renderSettings()}{renderInspector()}{renderWritingGuideSheet()}{renderQuickTools()}{renderApiSettings()}
         {confirmRestart && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" onClick={() => setConfirmRestart(false)}>
             <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl p-5" style={{ background: palette.panel, color: palette.text }}>
                 <h3 className="mb-2 font-bold">回到世界序幕？</h3>
