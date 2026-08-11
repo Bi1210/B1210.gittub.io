@@ -272,6 +272,8 @@ export interface APIConfig {
   stream?: boolean;
   // Per-API temperature for chat / 约会 main calls. Missing → 0.85.
   temperature?: number;
+  // Echoes 独立 API 的单回合 token 上限；仅 Echoes 读取，用户手填，不设默认建议值。
+  maxTokens?: number;
 }
 
 export interface InstantPushConfig {

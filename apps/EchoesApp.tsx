@@ -1017,7 +1017,7 @@ const EchoesApp: React.FC = () => {
     const [openFold, setOpenFold] = useState<string>('world'); // 创建界面当前展开的折叠块ID
     const [createStep, setCreateStep] = useState(1); // 创建界面步骤：1=世界观 2=游戏设定 3=可选细节
     const [activeTab, setActiveTab] = useState<'story' | 'hub' | 'lore' | 'relations' | 'highlights'>('story'); 
-    const [activeHubTab, setActiveHubTab] = useState<string>('status'); // 枢纽（手记）二级 Tab：状态、任务、规则、直播、战利品、线索
+    const [activeHubTab, setActiveHubTab] = useState<string>('status'); // 枢纽（查看）二级 Tab：状态、任务、规则、直播、战利品、线索
     const [showRawState, setShowRawState] = useState(false); // 状态页里的原始 JSON 折叠开关
     const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
     const [showNaturalProgressHint, setShowNaturalProgressHint] = useState(false);
@@ -2368,8 +2368,8 @@ const EchoesApp: React.FC = () => {
             ? 'radial-gradient(ellipse at 80% 0%, rgba(129,140,248,.14), transparent 50%), radial-gradient(ellipse at 0% 80%, rgba(244,114,182,.07), transparent 48%)'
             : `radial-gradient(ellipse at 80% 0%, ${ui.accent}12, transparent 52%)`;
     const tabItems = [
-        { key: 'story' as const, label: '叙事', icon: BookOpenText },
-        { key: 'hub' as const, label: '手记', icon: BookmarkSimple },
+        { key: 'story' as const, label: '本纪', icon: BookOpenText },
+        { key: 'hub' as const, label: '查看', icon: BookmarkSimple },
         { key: 'relations' as const, label: ui.labels.people, icon: UsersThree },
         { key: 'lore' as const, label: '世界志', icon: Globe },
         { key: 'highlights' as const, label: '回想', icon: Archive },
@@ -2417,16 +2417,18 @@ const EchoesApp: React.FC = () => {
 
     /** 枢纽页：分类展示所有机制卡片 */
     const hubView = <div className="mx-auto w-full max-w-2xl px-4 pb-12 pt-4">
-        <div className="mb-5 flex items-center justify-between">
-            <div>
-                <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>HUB</p>
-                <h2 className="mt-1 text-xl font-bold">手记</h2>
-            </div>
-            <div className="flex items-center gap-2 rounded-xl bg-black/10 p-1">
-                {([['status', '状态'], ['tasks', '任务'], ['rules', '规则'], ['live', '直播'], ['items', '战利品']] as const).map(([key, label]) => (
-                    <button key={key} onClick={() => setActiveHubTab(key)} className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${activeHubTab === key ? 'bg-white shadow-sm' : 'opacity-45'}`} style={{ color: activeHubTab === key ? ui.accent : palette.text, background: activeHubTab === key ? palette.panel : 'transparent' }}>{label}</button>
-                ))}
-            </div>
+        <div className="mb-4">
+            <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>HUB</p>
+            <h2 className="mt-1 text-xl font-bold">查看</h2>
+        </div>
+
+        <div className="mb-5 flex items-center gap-5 overflow-x-auto border-b" style={{ borderColor: palette.border }}>
+            {([['status', '状态'], ['tasks', '任务'], ['rules', '规则'], ['live', '直播'], ['items', '战利品']] as const).map(([key, label]) => (
+                <button key={key} onClick={() => setActiveHubTab(key)} className="relative shrink-0 pb-2.5 text-[13px] font-bold transition-colors" style={{ color: activeHubTab === key ? ui.accent : palette.muted, opacity: activeHubTab === key ? 1 : 0.55 }}>
+                    {label}
+                    {activeHubTab === key && <span className="absolute inset-x-0 -bottom-px h-[2px] rounded-full" style={{ background: ui.accent }} />}
+                </button>
+            ))}
         </div>
 
         <div className="animate-fade-in space-y-4">

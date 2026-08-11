@@ -204,7 +204,7 @@ const LeaderboardPanel: React.FC<{ entries: EchoesLeaderboardEntry[]; accent: st
         <span className="w-5 shrink-0 text-center text-[12px] font-black opacity-30 italic" style={{ color: entry.rank <= 3 ? accent : undefined, opacity: entry.rank <= 3 ? 0.8 : 0.3 }}>{entry.rank}</span>
         <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{entry.name}{entry.isPlayer && <span className="ml-1.5 text-[9px] font-bold uppercase opacity-40">Me</span>}</span>
         <span className="shrink-0 font-mono text-[12px] font-bold" style={{ color: accent }}>{entry.score}</span>
-        <span className="w-8 shrink-0 text-right text-[9px] font-bold tabular-nums opacity-40" style={{ color: entry.trend > 0 ? '#22c55e' : entry.trend < 0 ? '#ef4444' : undefined }}>{rankChangeLabel(entry.trend)}</span>
+        <span className="w-8 shrink-0 text-right text-[9px] font-bold tabular-nums opacity-40" style={{ color: typeof entry.trend === 'number' && entry.trend > 0 ? '#22c55e' : typeof entry.trend === 'number' && entry.trend < 0 ? '#ef4444' : undefined }}>{rankChangeLabel(entry.trend)}</span>
     </div>)}
 </div>;
 
@@ -215,7 +215,7 @@ const RelationshipMatrix: React.FC<{ entries: EchoesRelationshipEntry[]; accent:
             <span className="flex flex-1 items-center gap-2">信任<div className="h-0.5 flex-1 overflow-hidden rounded-full bg-black/10"><div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(0, Math.min(100, entry.trust))}%`, background: accent }} /></div></span>
             <span className="flex flex-1 items-center gap-2">好感<div className="h-0.5 flex-1 overflow-hidden rounded-full bg-black/10"><div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(0, Math.min(100, entry.affection))}%`, background: '#ef4444' }} /></div></span>
         </div>
-        {!!entry.tags.length && <div className="mt-2.5 flex flex-wrap gap-1.5">{entry.tags.slice(0, 4).map((tag, i) => <span key={`${tag}-${i}`} className="rounded bg-black/5 px-1.5 py-0.5 text-[9px] opacity-60" style={{ color }}>{tag}</span>)}</div>}
+        {!!entry.tags.length && <div className="mt-2.5 flex flex-wrap gap-1.5">{entry.tags.slice(0, 4).map((tag, i) => <span key={`${tag}-${i}`} className="rounded bg-black/5 px-1.5 py-0.5 text-[9px] opacity-60" style={{ color: accent }}>{tag}</span>)}</div>}
     </div>)}
 </div>;
 
