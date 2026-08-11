@@ -1024,6 +1024,7 @@ const EchoesApp: React.FC = () => {
     const [naturalProgressConfirmed, setNaturalProgressConfirmed] = useState(false);
     const [isNearLatest, setIsNearLatest] = useState(true);
     const [isAtStoryTop, setIsAtStoryTop] = useState(true);
+    const [whisperingMode, setWhisperingMode] = useState(false); // 低语模式：开启时输入直接发送给 AI 写作本体，不记入正文历史
     const [creationMethod, setCreationMethod] = useState<'manual' | 'ai' | 'random' | 'novel' | 'package'>('manual');
     const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
     const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'] });
@@ -1545,6 +1546,47 @@ const EchoesApp: React.FC = () => {
     ) => {
         const action = rawAction.trim();
         if (!baseWorld || (!action && rawMechanicAction === undefined && !naturalProgress) || generating || generatingRef.current) return;
+        
+        // 低语模式特殊处理
+        if (whisperingMode && action) {
+            setGenerating(true);
+            generatingRef.current = true;
+            setInput('');
+            try {
+                const whisperPrompt = `你现在是 Echoes 的写作本体（导演）。作者正在打破第四面墙与你直接低语，商讨接下来的写作方向。\n\n` +
+                    `【当前契约】\n${buildWritingGuideSection(baseWorld.writingGuide)}\n\n` +
+                    `【作者的低语】\n"${action}"\n\n` +
+                    `请你以合作写作者的身份，简短、诚恳地回应作者（100字以内），确认你已理解并接受这些新的写作要求。\n` +
+                    `同时，请输出一个 JSON 补丁来更新你的长期【写作者契约】，字段包含 style、tone、perspective、minWords、maxWords、authorInstructions（只需提供有变化的部分）。\n\n` +
+                    `输出格式示例：\n已经收到。我会让接下来的描写更具张力，增加雨天的压抑感。\n\n` +
+                    `{"stylePatch": "增加张力", "instructionPatch": "增加雨天的描写"}`;
+                
+                const data = await requestAI(whisperPrompt, 2000, baseWorld.title);
+                const raw = extractContent(data) || '';
+                const responseText = raw.split('{')[0].trim();
+                const patch = extractJson(raw);
+                
+                // 更新世界配置（持久化契约）
+                const newGuide: EchoesWritingGuide = {
+                    ...baseWorld.writingGuide,
+                    style: patch?.stylePatch || baseWorld.writingGuide.style,
+                    tone: patch?.tonePatch || baseWorld.writingGuide.tone,
+                    perspective: patch?.perspectivePatch || baseWorld.writingGuide.perspective,
+                    authorInstructions: patch?.instructionPatch ? `${baseWorld.writingGuide.authorInstructions}\n\n【最新低语追加】\n${patch.instructionPatch}` : baseWorld.writingGuide.authorInstructions,
+                };
+                
+                await persistWorld({ ...baseWorld, writingGuide: newGuide });
+                addToast(`本体已确认契约：${responseText}`, 'success');
+                setWhisperingMode(false); // 沟通完自动切回叙事模式
+            } catch (error: any) {
+                addToast(`低语沟通失败：${error.message}`, 'error');
+            } finally {
+                setGenerating(false);
+                generatingRef.current = false;
+            }
+            return;
+        }
+
         const preparation = rawMechanicAction === undefined
             ? undefined
             : prepareEchoesMechanicAction(baseWorld.mechanics, rawMechanicAction, { profile: baseWorld.novelProfile, now: Date.now() });
@@ -2574,6 +2616,13 @@ const EchoesApp: React.FC = () => {
 
     const actionDock = activeTab === 'story' && <div className={`sully-echoes-chrome shrink-0 border-t px-3 pb-1.5 pt-1.5 ${globalLiquidGlass ? `sully-lg-surface sully-lg-chrome border-t-0 rounded-t-[24px] ${liquidGlassShrunk ? 'sully-lg-shrink' : ''}` : ''}`} style={{ background: globalLiquidGlass ? undefined : `${palette.panel}f8`, borderColor: palette.border }}>
         <div className="mx-auto max-w-2xl">
+            {/* 低语模式切换提示 */}
+            {whisperingMode && <div className="mb-2 px-1 animate-pulse">
+                <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-violet-400">
+                    <Sparkle size={10} weight="fill" /> Whispering to Director · 正在低语...
+                </span>
+            </div>}
+
             {hasSuggestions && <div className="mb-1.5">
                 <button type="button" onClick={() => setSuggestionsExpanded(value => !value)} aria-expanded={suggestionsExpanded} className="flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06`, color: palette.muted }}>
                     <span><span style={{ color: ui.accent }}>你可以</span><span className="mx-1 opacity-50">·</span>{suggestionsExpanded ? '选择一种介入方式' : '让这一刻继续展开'}</span>
@@ -2613,8 +2662,9 @@ const EchoesApp: React.FC = () => {
             
             {!lastTurn?.endingTriggered && (
                 <div className="flex items-end gap-1.5">
-                    <button type="button" onClick={() => setShowQuickTools(true)} aria-label="本回合工具" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border" style={{ borderColor: palette.border, color: palette.muted }}><Plus size={17} /></button>
-                    <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) void playAction(input); else runNaturalProgress(); } }} rows={1} disabled={generating} placeholder={lastTurn?.choices?.length ? '你也可以自由输入...' : (activeWorld.mode === 'reader' ? '说点什么，或做点什么……' : '输入你的行动……')} className="min-h-[36px] flex-1 resize-none rounded-xl border bg-transparent px-2.5 py-2 text-[13px] outline-none placeholder:opacity-35" style={{ borderColor: palette.border }} /><button type="button" onClick={() => input.trim() ? void playAction(input) : runNaturalProgress()} disabled={generating} aria-label={input.trim() ? '发送行动' : '顺其发展'} className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-xl px-2.5 text-white shadow-sm transition disabled:opacity-30" style={{ background: input.trim() ? ui.accent : `${ui.accent}cc` }}>{input.trim() ? <Sparkle size={16} weight="fill" /> : <ArrowRight size={17} weight="bold" />}</button>
+                    <button type="button" onClick={() => setWhisperingMode(v => !v)} aria-label="低语模式" className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors ${whisperingMode ? 'bg-violet-500/15 border-violet-500/40 text-violet-400 shadow-[0_0_12px_rgba(139,92,246,0.15)]' : 'border-white/10 text-white/30 hover:bg-white/5'}`}><Sparkle size={17} weight={whisperingMode ? 'fill' : 'regular'} /></button>
+                    <button type="button" onClick={() => setShowQuickTools(true)} aria-label="本回合工具" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 text-white/30 hover:bg-white/5"><Plus size={17} /></button>
+                    <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (input.trim()) void playAction(input); else runNaturalProgress(); } }} rows={1} disabled={generating} placeholder={whisperingMode ? '直接与本体沟通写作要求...' : (lastTurn?.choices?.length ? '你也可以自由输入...' : (activeWorld.mode === 'reader' ? '说点什么，或做点什么……' : '输入你的行动……'))} className={`min-h-[36px] flex-1 resize-none rounded-xl border bg-transparent px-2.5 py-2 text-[13px] outline-none transition-all placeholder:opacity-35 ${whisperingMode ? 'border-violet-500/30 focus:border-violet-500/60' : 'border-white/10 focus:border-white/25'}`} /><button type="button" onClick={() => input.trim() ? void playAction(input) : runNaturalProgress()} disabled={generating} aria-label={input.trim() ? '发送行动' : '顺其发展'} className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-xl px-2.5 text-white shadow-sm transition disabled:opacity-30" style={{ background: whisperingMode ? '#8b5cf6' : (input.trim() ? ui.accent : `${ui.accent}cc`) }}>{input.trim() ? <Sparkle size={16} weight="fill" /> : <ArrowRight size={17} weight="bold" />}</button>
                 </div>
             )}
         </div>

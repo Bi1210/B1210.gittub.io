@@ -94,38 +94,44 @@ const ActionList: React.FC<{
 
 const TaskRow: React.FC<{ task: EchoesTaskEntry; accent: string; muted: string }> = ({ task, accent, muted }) => {
     const color = statusColor(task.status, accent);
-    return <div className="rounded-xl border px-3 py-2.5" style={{ borderColor: `${accent}20`, background: `${accent}05` }}>
+    return <div className="py-2.5">
         <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-                <p className="text-[12px] font-semibold leading-relaxed">{task.title}</p>
-                {task.description && <p className="mt-1 text-[10px] leading-relaxed" style={{ color: muted }}>{task.description}</p>}
+                <p className="text-[13px] font-bold tracking-tight">{task.title}</p>
+                {task.description && <p className="mt-1 text-[11px] leading-relaxed opacity-60" style={{ color: muted }}>{task.description}</p>}
             </div>
-            <span className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold" style={{ color, background: `${color}16` }}>{statusLabel[task.status] || task.status}</span>
+            <span className="shrink-0 rounded-lg px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider" style={{ color, background: `${color}12` }}>{statusLabel[task.status] || task.status}</span>
         </div>
-        <div className="mt-2 flex items-center gap-2">
-            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full" style={{ background: `${accent}16` }}><div className="h-full rounded-full transition-all" style={{ width: `${Math.round(task.progress * 100)}%`, background: color }} /></div>
-            <span className="shrink-0 text-[9px] tabular-nums" style={{ color: muted }}>{Math.round(task.progress * 100)}%</span>
+        <div className="mt-2.5 flex items-center gap-3">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-black/5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.round(task.progress * 100)}%`, background: color }} />
+            </div>
+            <span className="shrink-0 text-[10px] font-mono opacity-40 tabular-nums">{Math.round(task.progress * 100)}%</span>
         </div>
     </div>;
 };
 
 const RuleRow: React.FC<{ rule: EchoesRuleEntry; accent: string; muted: string }> = ({ rule, accent, muted }) => {
-    // Unknown rules are intentionally never passed to this renderer by the
-    // visible branch below; this is a second UI-side guard for blind play.
-    const color = rule.category === 'must_not' ? '#b91c1c' : rule.category === 'must' ? accent : muted;
-    return <div className="flex items-start gap-2.5 rounded-xl border px-3 py-2.5" style={{ borderColor: `${color}28`, background: `${color}06` }}>
-        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
-        <p className="text-[11px] leading-relaxed" style={{ color: muted }}>{rule.text}</p>
+    const color = rule.category === 'must_not' ? '#ef4444' : rule.category === 'must' ? accent : muted;
+    return <div className="flex items-start gap-3 py-2">
+        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+        <p className="text-[12.5px] leading-relaxed opacity-85" style={{ color: muted }}>{rule.text}</p>
     </div>;
 };
 
 const ScenarioRow: React.FC<{ option: EchoesScenarioOption; accent: string; muted: string }> = ({ option, accent, muted }) => {
     const locked = option.status === 'locked';
     const color = statusColor(option.status, accent);
-    return <div className="flex items-start gap-2.5 rounded-xl border px-3 py-2.5" style={{ borderColor: `${accent}20`, background: `${accent}05`, opacity: locked ? .62 : 1 }}>
-        <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ color, background: `${color}16` }}>{locked ? <LockKey size={11} /> : option.selected ? <Check size={12} weight="bold" /> : <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />}</div>
-        <div className="min-w-0 flex-1"><p className="text-[12px] font-semibold leading-relaxed">{option.title}</p>{option.description && <p className="mt-1 text-[10px] leading-relaxed" style={{ color: muted }}>{option.description}</p>}{locked && option.lockedReason && <p className="mt-1 text-[9px]" style={{ color: muted }}>{option.lockedReason}</p>}</div>
-        {option.danger && !locked && <span className="shrink-0 text-[9px]" style={{ color: '#b45309' }}>{option.danger}</span>}
+    return <div className="flex items-start gap-3 py-2 opacity-85" style={{ opacity: locked ? .45 : 1 }}>
+        <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black/5" style={{ color, background: `${color}12` }}>
+            {locked ? <LockKey size={10} /> : option.selected ? <Check size={10} weight="bold" /> : <span className="h-1 w-1 rounded-full" style={{ background: color }} />}
+        </div>
+        <div className="min-w-0 flex-1">
+            <p className="text-[12.5px] font-semibold leading-normal">{option.title}</p>
+            {option.description && <p className="mt-0.5 text-[11px] leading-relaxed opacity-60" style={{ color: muted }}>{option.description}</p>}
+            {locked && option.lockedReason && <p className="mt-0.5 text-[9.5px] italic opacity-40">{option.lockedReason}</p>}
+        </div>
+        {option.danger && !locked && <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-500">{option.danger}</span>}
     </div>;
 };
 
@@ -161,9 +167,9 @@ const TrendingBoard: React.FC<{ entries: EchoesTrendingEntry[]; accent: string; 
     </div>)}
 </div>;
 
-const LiveRoom: React.FC<{ data: EchoesLiveRoomData; accent: string; muted: string }> = ({ data, accent, muted }) => <div className="rounded-xl border px-3 py-3" style={{ borderColor: `${accent}22`, background: `${accent}06` }}>
+const LiveRoom: React.FC<{ data: EchoesLiveRoomData; accent: string; muted: string }> = ({ data, accent, muted }) => <div className="py-2.5">
     <div className="flex items-center gap-2">
-        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: data.online ? '#15803d' : muted }} />
+        <span className="h-2 w-2 shrink-0 rounded-full animate-pulse" style={{ background: data.online ? '#15803d' : muted }} />
         <span className="text-[12px] font-semibold">{data.roomTitle}</span>
         <span className="ml-auto shrink-0 text-[10px] tabular-nums" style={{ color: muted }}>{data.viewerCount.toLocaleString()} 观看</span>
     </div>
@@ -174,39 +180,42 @@ const LiveRoom: React.FC<{ data: EchoesLiveRoomData; accent: string; muted: stri
 const CountdownPanel: React.FC<{ data: EchoesCountdownData; accent: string; muted: string }> = ({ data, accent, muted }) => {
     const ratio = typeof data.current === 'number' && typeof data.total === 'number' && data.total > 0 ? Math.max(0, Math.min(1, data.current / data.total)) : undefined;
     const color = data.urgent ? '#b91c1c' : accent;
-    return <div className="rounded-xl border px-3 py-3" style={{ borderColor: `${color}28`, background: `${color}08` }}>
-        <div className="flex items-center justify-between"><span className="text-[11.5px] font-semibold">{data.label}</span><span className="text-[13px] font-bold tabular-nums" style={{ color }}>{typeof data.current === 'number' ? `${data.current}${data.unit}` : '—'}</span></div>
-        {ratio !== undefined && <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: `${color}18` }}><div className="h-full rounded-full transition-all" style={{ width: `${ratio * 100}%`, background: color }} /></div>}
+    return <div className="py-2.5">
+        <div className="flex items-center justify-between">
+            <span className="text-[11.5px] font-semibold">{data.label}</span>
+            <span className="text-[13px] font-bold tabular-nums" style={{ color }}>{typeof data.current === 'number' ? `${data.current}${data.unit}` : '—'}</span>
+        </div>
+        {ratio !== undefined && <div className="mt-2 h-1 overflow-hidden rounded-full bg-black/5" style={{ background: 'rgba(255,255,255,0.03)' }}><div className="h-full rounded-full transition-all" style={{ width: `${ratio * 100}%`, background: color }} /></div>}
     </div>;
 };
 
 const InventoryGrid: React.FC<{ items: EchoesInventoryItem[]; accent: string; muted: string }> = ({ items, accent, muted }) => {
-    if (!items.length) return <p className="text-[11px] leading-relaxed" style={{ color: muted }}>暂无物品。</p>;
-    return <div className="grid grid-cols-2 gap-2">
-        {items.slice(0, 12).map(item => <div key={item.id} className="rounded-xl border px-2.5 py-2" style={{ borderColor: item.equipped ? `${accent}45` : `${accent}18`, background: item.equipped ? `${accent}0a` : `${accent}03` }}>
-            <div className="flex items-center justify-between gap-1"><span className="min-w-0 truncate text-[11px] font-semibold">{item.name}</span><span className="shrink-0 text-[10px] tabular-nums" style={{ color: muted }}>×{item.quantity}</span></div>
-            {item.equipped && <span className="mt-1 inline-block rounded-full px-1.5 py-0.5 text-[8.5px]" style={{ background: `${accent}16`, color: accent }}>已装备</span>}
+    if (!items.length) return <p className="py-8 text-center text-[11px] opacity-35" style={{ color: muted }}>暂无物品。</p>;
+    return <div className="grid grid-cols-2 gap-2.5">
+        {items.slice(0, 12).map(item => <div key={item.id} className="rounded-xl border px-3 py-2.5 transition-colors" style={{ borderColor: item.equipped ? `${accent}40` : 'rgba(255,255,255,0.06)', background: item.equipped ? `${accent}08` : 'rgba(0,0,0,0.03)' }}>
+            <div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate text-[12.5px] font-bold">{item.name}</span><span className="shrink-0 font-mono text-[10px] opacity-40 tabular-nums">×{item.quantity}</span></div>
+            {item.equipped && <div className="mt-1.5 flex items-center gap-1"><span className="h-1 w-1 rounded-full animate-pulse" style={{ background: accent }} /><span className="text-[9px] font-bold uppercase tracking-widest" style={{ color: accent }}>Equipped</span></div>}
         </div>)}
     </div>;
 };
 
-const LeaderboardPanel: React.FC<{ entries: EchoesLeaderboardEntry[]; accent: string; muted: string }> = ({ entries, accent, muted }) => <div className="space-y-1.5">
-    {entries.slice(0, 10).map(entry => <div key={entry.id} className="flex items-center gap-2.5 rounded-xl border px-3 py-2" style={{ borderColor: entry.isPlayer ? `${accent}45` : `${accent}18`, background: entry.isPlayer ? `${accent}0a` : `${accent}03` }}>
-        <span className="w-5 shrink-0 text-center text-[11px] font-bold" style={{ color: entry.rank <= 3 ? accent : muted }}>{entry.rank}</span>
-        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{entry.name}{entry.isPlayer && <span className="ml-1.5 opacity-60">（我）</span>}</span>
-        <span className="shrink-0 text-[11px] font-bold tabular-nums" style={{ color: accent }}>{entry.score}</span>
-        <span className="shrink-0 text-[9px] tabular-nums" style={{ color: muted }}>{rankChangeLabel(entry.trend)}</span>
+const LeaderboardPanel: React.FC<{ entries: EchoesLeaderboardEntry[]; accent: string; muted: string }> = ({ entries, accent, muted }) => <div className="space-y-1">
+    {entries.slice(0, 10).map(entry => <div key={entry.id} className="flex items-center gap-3 rounded-xl px-3 py-2 transition-colors" style={{ background: entry.isPlayer ? `${accent}08` : 'transparent' }}>
+        <span className="w-5 shrink-0 text-center text-[12px] font-black opacity-30 italic" style={{ color: entry.rank <= 3 ? accent : undefined, opacity: entry.rank <= 3 ? 0.8 : 0.3 }}>{entry.rank}</span>
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{entry.name}{entry.isPlayer && <span className="ml-1.5 text-[9px] font-bold uppercase opacity-40">Me</span>}</span>
+        <span className="shrink-0 font-mono text-[12px] font-bold" style={{ color: accent }}>{entry.score}</span>
+        <span className="w-8 shrink-0 text-right text-[9px] font-bold tabular-nums opacity-40" style={{ color: entry.trend > 0 ? '#22c55e' : entry.trend < 0 ? '#ef4444' : undefined }}>{rankChangeLabel(entry.trend)}</span>
     </div>)}
 </div>;
 
-const RelationshipMatrix: React.FC<{ entries: EchoesRelationshipEntry[]; accent: string; muted: string }> = ({ entries, accent, muted }) => <div className="space-y-2">
-    {entries.slice(0, 10).map(entry => <div key={entry.id} className="rounded-xl border px-3 py-2.5" style={{ borderColor: `${accent}18`, background: `${accent}03` }}>
-        <div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate text-[12px] font-semibold">{entry.name}</span><span className="shrink-0 text-[10px]" style={{ color: muted }}>{entry.status}</span></div>
-        <div className="mt-1.5 flex items-center gap-3 text-[9.5px]" style={{ color: muted }}>
-            <span className="flex items-center gap-1">信任<span className="inline-block h-1 w-10 overflow-hidden rounded-full" style={{ background: `${accent}16` }}><span className="block h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, entry.trust))}%`, background: accent }} /></span></span>
-            <span className="flex items-center gap-1">好感<span className="inline-block h-1 w-10 overflow-hidden rounded-full" style={{ background: `${accent}16` }}><span className="block h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, entry.affection))}%`, background: accent }} /></span></span>
+const RelationshipMatrix: React.FC<{ entries: EchoesRelationshipEntry[]; accent: string; muted: string }> = ({ entries, accent, muted }) => <div className="space-y-3">
+    {entries.slice(0, 10).map(entry => <div key={entry.id} className="rounded-xl bg-black/5 px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.02)' }}>
+        <div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate text-[13px] font-bold tracking-tight">{entry.name}</span><span className="text-[10px] font-bold uppercase tracking-widest opacity-40" style={{ color: accent }}>{entry.status}</span></div>
+        <div className="mt-2.5 flex items-center gap-4 text-[10px] font-bold">
+            <span className="flex flex-1 items-center gap-2">信任<div className="h-0.5 flex-1 overflow-hidden rounded-full bg-black/10"><div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(0, Math.min(100, entry.trust))}%`, background: accent }} /></div></span>
+            <span className="flex flex-1 items-center gap-2">好感<div className="h-0.5 flex-1 overflow-hidden rounded-full bg-black/10"><div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.max(0, Math.min(100, entry.affection))}%`, background: '#ef4444' }} /></div></span>
         </div>
-        {!!entry.tags.length && <div className="mt-1.5 flex flex-wrap gap-1">{entry.tags.slice(0, 4).map((tag, i) => <span key={`${tag}-${i}`} className="rounded-full px-1.5 py-0.5 text-[8.5px]" style={{ background: `${accent}12`, color: accent }}>{tag}</span>)}</div>}
+        {!!entry.tags.length && <div className="mt-2.5 flex flex-wrap gap-1.5">{entry.tags.slice(0, 4).map((tag, i) => <span key={`${tag}-${i}`} className="rounded bg-black/5 px-1.5 py-0.5 text-[9px] opacity-60" style={{ color }}>{tag}</span>)}</div>}
     </div>)}
 </div>;
 
@@ -280,31 +289,30 @@ export const EchoesMechanicRenderer: React.FC<EchoesMechanicRendererProps> = ({ 
     const isInteractive = isRegisteredInteractive && actionCount > 0;
     const isWanxiangTerminal = visualVariant === 'wanxiang_terminal' || visualVariant === 'terminal';
 
-    return <section className="echoes-mechanic-node my-5 overflow-hidden rounded-2xl border" style={{ 
-        borderColor: isWanxiangTerminal ? `${accent}66` : `${accent}38`, 
+    return <section className="echoes-mechanic-node my-4 overflow-hidden rounded-2xl border transition-all duration-300" style={{ 
+        borderColor: isWanxiangTerminal ? `${accent}30` : `${palette.border}`, 
         background: isWanxiangTerminal 
-            ? `linear-gradient(165deg, ${accent}15, #000 70%)` 
-            : `linear-gradient(145deg, ${accent}0d, ${palette.panel}d9)`,
-        boxShadow: isWanxiangTerminal ? `0 0 20px ${accent}15, inset 0 0 1px ${accent}30` : 'none'
+            ? `linear-gradient(165deg, ${accent}08, #000 85%)` 
+            : `rgba(255,255,255,0.02)`,
+        boxShadow: isWanxiangTerminal ? `0 4px 20px rgba(0,0,0,0.4)` : '0 2px 10px rgba(0,0,0,0.02)',
+        backdropFilter: isWanxiangTerminal ? 'none' : 'blur(12px)'
     }}>
-        <button type="button" onClick={() => setExpanded(value => !value)} className="flex w-full items-center gap-2 px-4 py-3 text-left" aria-expanded={expanded}>
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg" style={{ 
-                color: isWanxiangTerminal ? '#000' : accent, 
-                background: isWanxiangTerminal ? accent : `${accent}18`,
-                boxShadow: isWanxiangTerminal ? `0 0 10px ${accent}50` : 'none'
-            }}>{isEvent ? <WarningCircle size={14} /> : <Sparkle size={14} weight="fill" />}</span>
+        <button type="button" onClick={() => setExpanded(value => !value)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left" aria-expanded={expanded}>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl" style={{ 
+                color: isWanxiangTerminal ? accent : accent, 
+                background: isWanxiangTerminal ? `${accent}15` : `${accent}08`,
+            }}>{isEvent ? <WarningCircle size={16} /> : <Sparkle size={16} weight="fill" />}</span>
             <span className="min-w-0 flex-1">
-                <span className="block text-[9px] uppercase tracking-[.16em]" style={{ color: isWanxiangTerminal ? accent : accent, opacity: isWanxiangTerminal ? 1 : 1 }}>{kindLabel}</span>
-                <span className="mt-0.5 block truncate text-[13px] font-semibold" style={{ 
+                <span className="block text-[8.5px] font-bold uppercase tracking-[.2em] opacity-40" style={{ color: accent }}>{kindLabel}</span>
+                <span className="mt-0.5 block truncate text-[13.5px] font-bold tracking-tight" style={{ 
                     color: isWanxiangTerminal ? accent : 'inherit',
-                    textShadow: isWanxiangTerminal ? `0 0 8px ${accent}aa` : 'none'
                 }}>{mechanic.title}</span>
             </span>
-            {busy && <CircleNotch size={13} className="shrink-0 animate-spin" style={{ color: accent }} />}
-            <CaretDown size={15} className="shrink-0 transition-transform" style={{ color: isWanxiangTerminal ? accent : palette.muted, transform: expanded ? 'rotate(180deg)' : undefined }} />
+            {busy && <CircleNotch size={14} className="shrink-0 animate-spin opacity-50" style={{ color: accent }} />}
+            <CaretDown size={14} className="shrink-0 transition-transform opacity-30" style={{ color: isWanxiangTerminal ? accent : palette.muted, transform: expanded ? 'rotate(180deg)' : undefined }} />
         </button>
-        {expanded && <div className="border-t px-4 pb-4 pt-3" style={{ borderColor: isWanxiangTerminal ? `${accent}33` : `${accent}20` }}>
-            {mechanic.description && <p className="mb-3 text-[10.5px] leading-relaxed" style={{ color: isWanxiangTerminal ? accent : palette.muted, opacity: isWanxiangTerminal ? 0.7 : 1 }}>{mechanic.description}</p>}
+        {expanded && <div className="px-4 pb-4 pt-1">
+            {mechanic.description && <p className="mb-4 text-[11px] leading-relaxed opacity-50 italic" style={{ color: palette.text }}>{mechanic.description}</p>}
             {data.kind === 'task_panel' && <div className="space-y-2">{data.tasks.slice(0, 8).map(task => <TaskRow key={task.id} task={task} accent={accent} muted={palette.muted} />)}</div>}
             {data.kind === 'rules_panel' && (data.rules.some(rule => rule.known)
                 ? <div className="space-y-2">{data.rules.filter(rule => rule.known).slice(0, 12).map(rule => <RuleRow key={rule.id} rule={rule} accent={accent} muted={palette.muted} />)}</div>
