@@ -19,6 +19,7 @@ const EchoesApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig;
     const [customBaseUrl, setCustomBaseUrl] = useState('');
     const [customApiKey, setCustomApiKey] = useState('');
     const [customModel, setCustomModel] = useState('');
+    const [customMaxTokens, setCustomMaxTokens] = useState<number | ''>(8000);
     const [savingCustom, setSavingCustom] = useState(false);
 
     useEffect(() => {
@@ -27,21 +28,23 @@ const EchoesApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig;
             setCustomBaseUrl(config?.baseUrl || '');
             setCustomApiKey(config?.apiKey || '');
             setCustomModel(config?.model || '');
+            setCustomMaxTokens(config?.maxTokens || 8000);
         });
         void DB.getEchoesApiLog().then(setLog);
     }, []);
 
     const follow = !echoesApi?.baseUrl;
     const effective = follow ? chatApi : echoesApi!;
-    const sameAs = (c: APIConfig) => !follow && echoesApi!.baseUrl === c.baseUrl && echoesApi!.model === c.model && echoesApi!.apiKey === c.apiKey;
+    const sameAs = (c: APIConfig) => !follow && echoesApi!.baseUrl === c.baseUrl && echoesApi!.model === c.model && echoesApi!.apiKey === c.apiKey && echoesApi!.maxTokens === c.maxTokens;
     const host = (u?: string) => { try { return u ? new URL(u).host : '—'; } catch { return u || '—'; } };
 
-    const choose = (cfg: APIConfig | null) => {
+    const choose = (cfg: EchoesApiConfig | null) => {
         void DB.saveEchoesApiConfig(cfg);
         setEchoesApi(cfg);
         setCustomBaseUrl(cfg?.baseUrl || '');
         setCustomApiKey(cfg?.apiKey || '');
         setCustomModel(cfg?.model || '');
+        setCustomMaxTokens(cfg?.maxTokens || 8000);
         setTestResult(null);
         addToast?.(cfg ? '已切换 Echoes API' : 'Echoes 改为跟随聊天默认', 'success');
     };
@@ -62,6 +65,7 @@ const EchoesApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig;
                 model,
                 stream: false,
                 temperature: 0.86,
+                maxTokens: Number(customMaxTokens) || 8000,
             };
             await DB.saveEchoesApiConfig(cfg);
             setEchoesApi(cfg);
@@ -189,6 +193,13 @@ const EchoesApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig;
                     <label className="block">
                         <span className="mb-1 block text-[10px] opacity-55">模型名</span>
                         <input value={customModel} onChange={e => setCustomModel(e.target.value)} placeholder="例如 claude-sonnet-4-5" className="w-full rounded-lg border bg-transparent px-2.5 py-2 text-[11px] outline-none" style={{ borderColor: 'rgba(255,255,255,.12)' }} />
+                    </label>
+                    <label className="block">
+                        <span className="mb-0.5 block text-[10px] opacity-55">单回合 Token 上限</span>
+                        <input type="number" value={customMaxTokens} onChange={e => setCustomMaxTokens(e.target.value === '' ? '' : Number(e.target.value))} placeholder="单次生成最大 tokens 长度限制（建议 6000-12000，保障长文生成）" className="w-full rounded-lg border bg-transparent px-2.5 py-2 text-[11px] outline-none" style={{ borderColor: 'rgba(255,255,255,.12)' }} />
+                        <span className="mt-1 block text-[9px] opacity-35 leading-normal">
+                            建议设置较大值（如 10000+）以支持小说正文的高字数生成，防止故事未写完被中途截断。
+                        </span>
                     </label>
                     <button onClick={() => void saveCustom()} disabled={savingCustom} className="w-full rounded-lg px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50" style={{ background: '#7c3aed' }}>
                         {savingCustom ? '保存中…' : '保存并使用独立 API'}

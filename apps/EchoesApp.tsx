@@ -977,16 +977,16 @@ const formatHistory = (world: EchoesWorld): string => {
 const buildWritingGuideSection = (guide: EchoesWritingGuide | undefined): string => {
     const g = guide || DEFAULT_WRITING_GUIDE;
     const lines: string[] = [];
-    if (g.style) lines.push(`写作方式：${g.style}`);
-    if (g.tone) lines.push(`语气/氛围：${g.tone}`);
-    if (g.perspective) lines.push(`视角/人称：${g.perspective}`);
+    if (g.style) lines.push(`【写作契约/风格】${g.style}`);
+    if (g.tone) lines.push(`【写作契约/氛围】${g.tone}`);
+    if (g.perspective) lines.push(`【写作契约/视角】${g.perspective}`);
     if (g.minWords || g.maxWords) {
         const min = g.minWords ? `不少于 ${g.minWords} 字` : '';
         const max = g.maxWords ? `不超过 ${g.maxWords} 字` : '';
-        lines.push(`单轮字数：${[min, max].filter(Boolean).join('，') || '无硬性限制'}`);
+        lines.push(`【写作契约/篇幅】${[min, max].filter(Boolean).join('，') || '无硬性限制'}`);
     }
-    if (g.authorInstructions) lines.push(`补充指令：${g.authorInstructions}`);
-    if (lines.length === 0) return '（作者暂未设置写作指导，按世界观和档位自行判断风格。）';
+    if (g.authorInstructions) lines.push(`【作者对你（写作本体）的低语契约——请以编辑/合作创作者的身份严格执行】\n${g.authorInstructions}`);
+    if (lines.length === 0) return '（作者暂未与你建立写作契约，请按世界观和档位自行判断叙事风格。）';
     return lines.join('\n');
 };
 
@@ -1016,7 +1016,8 @@ const EchoesApp: React.FC = () => {
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     const [openFold, setOpenFold] = useState<string>('world'); // 创建界面当前展开的折叠块ID
     const [createStep, setCreateStep] = useState(1); // 创建界面步骤：1=世界观 2=游戏设定 3=可选细节
-    const [activeTab, setActiveTab] = useState<'story' | 'lore' | 'relations' | 'highlights'>('story'); // 世界内部四个入口：本纪 / 人物 / 世界志 / 回想；章节目录归入本纪标题栏
+    const [activeTab, setActiveTab] = useState<'story' | 'hub' | 'lore' | 'relations' | 'highlights'>('story'); 
+    const [activeHubTab, setActiveHubTab] = useState<string>('status'); // 枢纽（手记）二级 Tab：状态、任务、规则、直播、战利品、线索
     const [showRawState, setShowRawState] = useState(false); // 状态页里的原始 JSON 折叠开关
     const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
     const [showNaturalProgressHint, setShowNaturalProgressHint] = useState(false);
@@ -1113,17 +1114,21 @@ const EchoesApp: React.FC = () => {
         return () => window.cancelAnimationFrame(frame);
     }, [activeWorld?.id, activeWorld?.turns.length, activeTab, view, isNearLatest, freshTurnId]);
 
-    const requestAI = useCallback(async (prompt: string, maxTokens = 5000, worldTitle = ''): Promise<any> => {
+    const requestAI = useCallback(async (prompt: string, maxTokensOverride?: number, worldTitle = ''): Promise<any> => {
         // Echoes 的配置存于本地 IndexedDB；独立配置优先，未设置时跟随聊天默认。
         // 读取本地配置不会增加中转/API 请求次数，也能让设置页保存后立即生效。
         let independent: EchoesApiConfig | null = null;
         try { independent = await DB.getEchoesApiConfig(); } catch { /* 旧库/升级中的存档，回退聊天默认 */ }
-        const config = independent?.baseUrl ? independent : apiConfig;
-        if (!config?.baseUrl || !config?.model) throw new Error('请先在 Echoes API 设置中配置中转地址和模型');
+        const independence = independent?.baseUrl ? independent : apiConfig;
+        if (!independence?.baseUrl || !independence?.model) throw new Error('请先在 Echoes API 设置中配置中转地址和模型');
 
-        const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+        const url = `${independence.baseUrl.replace(/\/+$/, '')}/chat/completions`;
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+        if (independence.apiKey) headers.Authorization = `Bearer ${independence.apiKey}`;
+        
+        // 优先级：参数覆盖 > 用户独立设置 > 默认 5000
+        const finalMaxTokens = maxTokensOverride || independence?.maxTokens || 5000;
+
         const startedAt = Date.now();
         let lastError: unknown = null;
         let succeeded = false;
@@ -1135,7 +1140,7 @@ const EchoesApp: React.FC = () => {
                     const response = await fetch(url, {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify({ model: config.model, messages: [{ role: 'user', content: prompt }], temperature: config.temperature ?? 0.86, max_tokens: maxTokens, stream: false }),
+                        body: JSON.stringify({ model: independence.model, messages: [{ role: 'user', content: prompt }], temperature: independence.temperature ?? 0.86, max_tokens: finalMaxTokens, stream: false }),
                         signal: controller.signal,
                     });
                     if (!response.ok) throw new Error(`AI 请求失败（HTTP ${response.status}）`);
@@ -1469,7 +1474,9 @@ const EchoesApp: React.FC = () => {
             ...(novelProfile ? { novelProfile } : {}),
         };
         try {
-            const data = await requestAI(basePrompt(seed, '（开场）', true), 6500, seed.title);
+            const wordsNeeded = seed.writingGuide?.minWords || 0;
+            const dynamicMaxTokens = Math.max(6500, wordsNeeded * 2.5 + 2000);
+            const data = await requestAI(basePrompt(seed, '（开场）', true), dynamicMaxTokens, seed.title);
             const raw = extractContent(data) || '';
             let payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
             payloadRaw = await reviewPayload(seed, '（开场）', payloadRaw);
@@ -1558,7 +1565,12 @@ const EchoesApp: React.FC = () => {
         // near the latest content.
         setGenerating(true);
         try {
-            const data = await requestAI(basePrompt(promptWorld, narrativeAction, false, preparation?.actionText || ''), 6500, baseWorld.title);
+            // 根据 minWords 动态提升 maxTokens 物理上限。
+            // 默认系数 2.5 (1汉字约2tokens) + JSON 结构冗余。
+            const wordsNeeded = baseWorld.writingGuide?.minWords || 0;
+            const dynamicMaxTokens = Math.max(6500, wordsNeeded * 2.5 + 2000);
+
+            const data = await requestAI(basePrompt(promptWorld, narrativeAction, false, preparation?.actionText || ''), dynamicMaxTokens, baseWorld.title);
             const raw = extractContent(data) || '';
             let payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
             payloadRaw = await reviewPayload(promptWorld, narrativeAction, payloadRaw);
@@ -2033,19 +2045,19 @@ const EchoesApp: React.FC = () => {
                         <StepField label="剧情排版倾向"><PillPicker cols={2} accent={current.accent} value={draft.formatting} onChange={formatting => setDraft({ ...draft, formatting })} options={[{ key: 'adaptive' as const, label: '自适应', desc: '按内容选择格式' }, { key: 'novel' as const, label: '小说优先', desc: '正文连续易读' }, { key: 'records' as const, label: '档案优先', desc: '世界内资料更丰富' }, { key: 'technical' as const, label: '技术记录', desc: '终端、数据更多' }]} /></StepField>
 
                         <div className="mt-2 overflow-hidden rounded-3xl border border-white/[.08]" style={{ background: 'linear-gradient(160deg, rgba(192,132,252,.08), rgba(255,255,255,.02))' }}>
-                            <div className="flex items-center gap-2 border-b border-white/[.06] px-4 py-3"><PencilSimple size={15} className="text-purple-300" /><span className="text-[12.5px] font-bold text-white/85">写作指导</span><span className="ml-auto text-[9px] text-white/30">随时可在游玩中调整</span></div>
+                            <div className="flex items-center gap-2 border-b border-white/[.06] px-4 py-3"><PencilSimple size={15} className="text-purple-300" /><span className="text-[12.5px] font-bold text-white/85">写作者契约</span><span className="ml-auto text-[9px] text-white/30">与 AI 写作本体的直接沟通</span></div>
                             <div className="px-4 py-4">
-                                <p className="mb-3 text-[10.5px] leading-relaxed text-white/40">这不是世界内容——是你直接对 AI 写作本体下的底层指令，角色感知不到。</p>
+                                <p className="mb-3 text-[10.5px] leading-relaxed text-white/40">在这里直接与你的写作本体（导演）沟通。这不是指令，而是你们之间的契约与低语。</p>
                                 <div className="space-y-2.5">
-                                    <input value={draftWritingGuide.style} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, style: e.target.value })} placeholder="写作方式，例如：写实细腻、意识流……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
-                                    <input value={draftWritingGuide.tone} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, tone: e.target.value })} placeholder="语气/氛围，例如：压抑悬疑、轻松温馨……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
-                                    <input value={draftWritingGuide.perspective} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, perspective: e.target.value })} placeholder="视角/人称，例如：第二人称……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                    <input value={draftWritingGuide.style} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, style: e.target.value })} placeholder="共同约定的写作方式，如：写实细腻、意识流……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                    <input value={draftWritingGuide.tone} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, tone: e.target.value })} placeholder="感官氛围的默契，如：压抑悬疑、轻松温馨……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                    <input value={draftWritingGuide.perspective} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, perspective: e.target.value })} placeholder="观察世界的视角，如：第二人称……" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] outline-none placeholder:text-white/20 focus:border-purple-400/50" />
                                     <div className="grid grid-cols-3 gap-2">
-                                        <input type="number" min={0} value={draftWritingGuide.minWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, minWords: Number(e.target.value) || 0 })} placeholder="字数下限" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
-                                        <input type="number" min={0} value={draftWritingGuide.maxWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, maxWords: Number(e.target.value) || 0 })} placeholder="字数上限" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
-                                        <input type="number" min={1} max={40} value={draftWritingGuide.contextRounds} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, contextRounds: Number(e.target.value) || DEFAULT_WRITING_GUIDE.contextRounds })} placeholder="参考轮数" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
+                                        <input type="number" min={0} value={draftWritingGuide.minWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, minWords: Number(e.target.value) || 0 })} placeholder="篇幅下限" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
+                                        <input type="number" min={0} value={draftWritingGuide.maxWords || ''} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, maxWords: Number(e.target.value) || 0 })} placeholder="篇幅上限" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
+                                        <input type="number" min={1} max={40} value={draftWritingGuide.contextRounds} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, contextRounds: Number(e.target.value) || DEFAULT_WRITING_GUIDE.contextRounds })} placeholder="契约深度" className="w-full rounded-xl border border-white/[.08] bg-white/[.04] px-2.5 py-2.5 text-[11px] outline-none placeholder:text-white/20" />
                                     </div>
-                                    <textarea value={draftWritingGuide.authorInstructions} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, authorInstructions: e.target.value })} rows={3} placeholder="自由指令，直接对 AI 说：不要倒叙开场、节奏放慢……" className="w-full resize-y rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] leading-relaxed outline-none placeholder:text-white/20 focus:border-purple-400/50" />
+                                    <textarea value={draftWritingGuide.authorInstructions} onChange={e => setDraftWritingGuide({ ...draftWritingGuide, authorInstructions: e.target.value })} rows={3} placeholder="直接对你的写作本体低语。例如：‘让我们以更缓慢的步调开始，多描写青姒身边的风吹草动与心理特写。’" className="w-full resize-y rounded-xl border border-white/[.08] bg-white/[.04] px-3 py-2.5 text-[12px] leading-relaxed outline-none placeholder:text-white/20 focus:border-purple-400/50" />
                                 </div>
                             </div>
                         </div>
@@ -2314,10 +2326,11 @@ const EchoesApp: React.FC = () => {
             ? 'radial-gradient(ellipse at 80% 0%, rgba(129,140,248,.14), transparent 50%), radial-gradient(ellipse at 0% 80%, rgba(244,114,182,.07), transparent 48%)'
             : `radial-gradient(ellipse at 80% 0%, ${ui.accent}12, transparent 52%)`;
     const tabItems = [
-        { key: 'story' as const, label: '本纪', icon: BookOpenText },
-        { key: 'lore' as const, label: '世界志', icon: Globe },
+        { key: 'story' as const, label: '叙事', icon: BookOpenText },
+        { key: 'hub' as const, label: '手记', icon: BookmarkSimple },
         { key: 'relations' as const, label: ui.labels.people, icon: UsersThree },
-        { key: 'highlights' as const, label: '回想', icon: BookmarkSimple },
+        { key: 'lore' as const, label: '世界志', icon: Globe },
+        { key: 'highlights' as const, label: '回想', icon: Archive },
     ];
 
     const allMechanics = lastTurn?.afterMechanics || activeWorld.mechanics;
@@ -2356,13 +2369,47 @@ const EchoesApp: React.FC = () => {
                     </article>;
                 })}
             </div>
-            {activeMechanics.length > 0 && <div className="mt-8 border-t pt-8" style={{ borderColor: `${ui.accent}12` }}>
-                <p className="mb-4 text-[10px] uppercase tracking-[.18em] opacity-40 text-center" style={{ color: ui.accent }}>World Nodes · 当前节点</p>
-                {activeMechanics.map(mechanic => <EchoesMechanicRenderer key={mechanic.id} mechanic={mechanic} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}
-            </div>}
             {generating && <div className="my-6 flex items-center justify-center gap-2 rounded-2xl py-3 text-xs" style={{ color: palette.muted, background: `${palette.panel}88` }}><CircleNotch className="animate-spin" size={15} style={{ color: ui.accent }} />世界正在回应……</div>}
         </div>
     </>;
+
+    /** 枢纽页：分类展示所有机制卡片 */
+    const hubView = <div className="mx-auto w-full max-w-2xl px-4 pb-12 pt-4">
+        <div className="mb-5 flex items-center justify-between">
+            <div>
+                <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: ui.accent }}>HUB</p>
+                <h2 className="mt-1 text-xl font-bold">手记</h2>
+            </div>
+            <div className="flex items-center gap-2 rounded-xl bg-black/10 p-1">
+                {([['status', '状态'], ['tasks', '任务'], ['rules', '规则'], ['live', '直播'], ['items', '战利品']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => setActiveHubTab(key)} className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition ${activeHubTab === key ? 'bg-white shadow-sm' : 'opacity-45'}`} style={{ color: activeHubTab === key ? ui.accent : palette.text, background: activeHubTab === key ? palette.panel : 'transparent' }}>{label}</button>
+                ))}
+            </div>
+        </div>
+
+        <div className="animate-fade-in space-y-4">
+            {activeHubTab === 'status' && <div className="space-y-4">
+                {allMechanics.filter(m => m.kind === 'resource_panel' || m.kind === 'countdown').map(m => <EchoesMechanicRenderer key={m.id} mechanic={m} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}
+                {allMechanics.filter(m => m.kind === 'resource_panel' || m.kind === 'countdown').length === 0 && <p className="py-20 text-center text-xs opacity-35">暂无状态数据</p>}
+            </div>}
+            {activeHubTab === 'tasks' && <div className="space-y-4">
+                {allMechanics.filter(m => m.kind === 'task_panel' || m.kind === 'schedule_board' || m.kind === 'event_card').map(m => <EchoesMechanicRenderer key={m.id} mechanic={m} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}
+                {allMechanics.filter(m => m.kind === 'task_panel' || m.kind === 'schedule_board' || m.kind === 'event_card').length === 0 && <p className="py-20 text-center text-xs opacity-35">暂无进行中的任务或事件</p>}
+            </div>}
+            {activeHubTab === 'rules' && <div className="space-y-4">
+                {allMechanics.filter(m => m.kind === 'rules_panel' || m.kind === 'leaderboard' || m.kind === 'trending_board').map(m => <EchoesMechanicRenderer key={m.id} mechanic={m} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}
+                {allMechanics.filter(m => m.kind === 'rules_panel' || m.kind === 'leaderboard' || m.kind === 'trending_board').length === 0 && <p className="py-20 text-center text-xs opacity-35">尚未确立世界规则或榜单</p>}
+            </div>}
+            {activeHubTab === 'live' && <div className="space-y-4">
+                {allMechanics.filter(m => m.kind === 'live_room' || m.kind === 'danmaku_stream').map(m => <EchoesMechanicRenderer key={m.id} mechanic={m} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}
+                {allMechanics.filter(m => m.kind === 'live_room' || m.kind === 'danmaku_stream').length === 0 && <p className="py-20 text-center text-xs opacity-35">当前没有开启的直播频道</p>}
+            </div>}
+            {activeHubTab === 'items' && <div className="space-y-4">
+                {allMechanics.filter(m => m.kind === 'inventory_grid' || m.kind === 'evidence_board' || m.kind === 'resource_panel').map(m => <EchoesMechanicRenderer key={m.id} mechanic={m} accent={ui.accent} palette={palette} busy={generating} visualVariant={activeWorld.visualVariant} onAction={handleMechanicAction} />)}
+                {allMechanics.filter(m => m.kind === 'inventory_grid' || m.kind === 'evidence_board' || m.kind === 'resource_panel').length === 0 && <p className="py-20 text-center text-xs opacity-35">你的背包空空如也</p>}
+            </div>}
+        </div>
+    </div>;
 
     // 章节按 turn.chapter 分组，作为“进展”页的章节目录；不单独占底部导航。
     const chapterGroups = (() => {
@@ -2625,22 +2672,22 @@ const EchoesApp: React.FC = () => {
             }}
         >
             {activeTab === 'story' && !isNearLatest && <button type="button" onClick={scrollToLatest} className="sticky right-0 top-3 z-10 ml-auto mr-3 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold shadow-sm backdrop-blur" style={{ borderColor: `${ui.accent}45`, color: ui.accent, background: `${palette.panel}e8` }}><ArrowRight size={13} className="rotate-90" />回到最新</button>}
-            {activeTab === 'story' ? storyView : activeTab === 'lore' ? loreView : activeTab === 'relations' ? relationsView : highlightsView}
+            {activeTab === 'story' ? storyView : activeTab === 'hub' ? hubView : activeTab === 'lore' ? loreView : activeTab === 'relations' ? relationsView : highlightsView}
         </main>
         {activeTab === 'story' && <div className="pointer-events-none absolute right-2 z-20 flex flex-col items-center justify-center gap-1.5" style={{ top: 'calc(var(--safe-top) + 6.5rem)', bottom: 'calc(var(--safe-bottom) + 7rem)' }}>
             {[
-                { label: '回到故事顶部', disabled: isAtStoryTop, icon: <CaretDoubleUp size={18} weight="bold" />, action: () => scrollToStoryEdge('top') },
-                { label: '上一回合', disabled: isAtStoryTop, icon: <CaretUp size={18} weight="bold" />, action: () => scrollToTurn('previous') },
-                { label: '下一回合', disabled: isNearLatest, icon: <CaretDown size={18} weight="bold" />, action: () => scrollToTurn('next') },
-                { label: '回到故事底部', disabled: isNearLatest, icon: <CaretDoubleDown size={18} weight="bold" />, action: () => scrollToStoryEdge('bottom') },
+                { label: '回到故事顶部', disabled: isAtStoryTop, icon: <CaretDoubleUp size={16} weight="bold" />, action: () => scrollToStoryEdge('top') },
+                { label: '上一回合', disabled: isAtStoryTop, icon: <CaretUp size={16} weight="bold" />, action: () => scrollToTurn('previous') },
+                { label: '下一回合', disabled: isNearLatest, icon: <CaretDown size={16} weight="bold" />, action: () => scrollToTurn('next') },
+                { label: '回到故事底部', disabled: isNearLatest, icon: <CaretDoubleDown size={16} weight="bold" />, action: () => scrollToStoryEdge('bottom') },
             ].map(button => <button
                 key={button.label}
                 type="button"
                 aria-label={button.label}
                 disabled={button.disabled}
                 onClick={button.action}
-                className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border shadow-sm backdrop-blur-xl transition active:scale-95 disabled:opacity-35"
-                style={{ color: palette.text, borderColor: palette.border, background: `${palette.panel}e8`, boxShadow: `0 4px 12px ${ui.accent}08, inset 0 1px 0 rgba(255,255,255,.55)` }}
+                className="pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border shadow-sm backdrop-blur transition active:scale-90 disabled:opacity-20"
+                style={{ color: palette.text, borderColor: `${palette.border}60`, background: `${palette.panel}a0`, boxShadow: `0 2px 8px rgba(0,0,0,.05)` }}
             >{button.icon}</button>)}
         </div>}
         {actionDock}

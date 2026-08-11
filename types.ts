@@ -4114,6 +4114,7 @@ export interface EchoesApiConfig {
   presetId?: string;
   stream?: boolean;
   temperature?: number;
+  maxTokens?: number;
 }
 
 export interface EchoesApiCallLogEntry {
