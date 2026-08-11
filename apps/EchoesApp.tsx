@@ -2228,6 +2228,45 @@ const EchoesApp: React.FC = () => {
             </div>
             {settingsSection === 'experience' && <div className="space-y-4">{renderExperienceSettings()}</div>}
             {settingsSection === 'appearance' && <div className="space-y-4">
+            {/* 世界封面图上传/更换 */}
+            <div>
+                <span className="mb-2 block font-bold opacity-70">世界封面图</span>
+                <p className="mb-2 text-[10px] leading-relaxed opacity-50">显示在世界库卡片和封面页，让你的世界更有视觉冲击力。</p>
+                {activeWorld.coverImage ? (
+                    <div className="relative">
+                        <div className="h-32 overflow-hidden rounded-xl border" style={{ borderColor: palette.border, backgroundImage: `url(${activeWorld.coverImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                        <button onClick={() => void persistWorld({ ...activeWorld, coverImage: undefined })} className="absolute right-2 top-2 rounded-lg bg-black/70 p-1.5 text-white/90 backdrop-blur-sm hover:bg-black/90" aria-label="移除封面图"><X size={14} /></button>
+                    </div>
+                ) : (
+                    <button onClick={() => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = async (e: any) => {
+                            try {
+                                const file = e.target?.files?.[0];
+                                if (!file) return;
+                                if (file.size > 5 * 1024 * 1024) {
+                                    addToast('图片过大，请选择小于 5MB 的图片', 'error');
+                                    return;
+                                }
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                    const base64 = reader.result as string;
+                                    void persistWorld({ ...activeWorld, coverImage: base64 });
+                                };
+                                reader.readAsDataURL(file);
+                            } catch {
+                                addToast('图片读取失败', 'error');
+                            }
+                        };
+                        input.click();
+                    }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed py-5 text-[12px] transition hover:bg-black/[.02]" style={{ borderColor: palette.border, color: palette.muted }}>
+                        <ImageSquare size={18} />上传封面图
+                    </button>
+                )}
+            </div>
+            
             <div><span className="mb-2 block font-bold opacity-70">布局</span><div className="grid grid-cols-2 gap-2">{(Object.keys(LAYOUT_META) as EchoesLayout[]).map(layout => <button key={layout} onClick={() => void updateUI({ layout })} className={`rounded-xl border px-3 py-2 text-left ${ui.layout === layout ? 'ring-2' : ''}`} style={{ borderColor: ui.layout === layout ? ui.accent : palette.border }}>{LAYOUT_META[layout]}</button>)}</div></div>
             <div><span className="mb-2 block font-bold opacity-70">主题</span><div className="grid grid-cols-5 gap-2">{(Object.keys(THEME_META) as EchoesTheme[]).map(theme => <button key={theme} onClick={() => void updateUI({ theme, accent: ACCENT_PRESETS[theme][0] })} className={`h-8 rounded-lg border ${ui.theme === theme ? 'ring-2' : ''}`} style={{ background: THEME_META[theme].bg, borderColor: ui.theme === theme ? ui.accent : palette.border }} aria-label={theme} />)}</div></div>
             <div><span className="mb-2 block font-bold opacity-70">强调色</span><div className="flex flex-wrap gap-2">{ACCENT_PRESETS[ui.theme].map(color => <button key={color} onClick={() => void updateUI({ accent: color })} className="h-8 w-8 rounded-full border-2" style={{ background: color, borderColor: ui.accent === color ? palette.text : 'transparent', boxShadow: ui.accent === color ? `0 0 0 2px ${color}` : 'none' }} aria-label={color} />)}<input type="color" value={ui.accent} onChange={e => void updateUI({ accent: e.target.value })} className="h-8 w-8 rounded-full border-0 bg-transparent" title="自定义颜色" /></div></div>
