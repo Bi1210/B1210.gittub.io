@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Archive, ArrowLeft, ArrowRight, BookOpenText, BookmarkSimple, BracketsCurly, CaretDoubleDown, CaretDoubleUp, CaretDown, CaretUp, Check, CircleNotch, Compass,
-    Copy, Eye, FileText, GearSix, GitBranch, Globe, ImageSquare, MapPin, Palette,
+    Copy, Eye, FileText, GearSix, GitBranch, Globe, ImageSquare, Lightbulb, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
     X,
 } from '@phosphor-icons/react';
@@ -53,7 +53,7 @@ const FORMAT_LABELS: Record<EchoesFormat, string> = {
 const DEFAULT_FORMATS: EchoesFormat[] = [...ALL_FORMATS];
 
 const DEFAULT_LABELS = {
-    storyTab: '故事', hubTab: '资料',
+    storyTab: '本纪', hubTab: '查看',
     people: '人物', quests: '任务', clues: '线索', inventory: '物品',
     chapters: '章节', saves: '存档', time: '时间', location: '地点',
 };
@@ -121,12 +121,12 @@ const LAYOUT_META: Record<EchoesLayout, string> = {
     novel: '小说阅读', archive: '档案调查', terminal: '终端记录', minimal: '极简沉浸',
 };
 
-const THEME_META: Record<EchoesTheme, { bg: string; panel: string; text: string; muted: string; border: string; label: string }> = {
-    paper:    { bg: '#f5f1e8', panel: '#fffdf8', text: '#302b29', muted: '#756d65', border: 'rgba(48,43,41,.12)',    label: '纸感暖白' },
-    midnight: { bg: '#11121a', panel: '#1b1e2b', text: '#eef0fa', muted: '#a6abc1', border: 'rgba(255,255,255,.12)', label: '午夜深色' },
-    sepia:    { bg: '#ede0c6', panel: '#f8efd9', text: '#432e1f', muted: '#876d56', border: 'rgba(67,46,31,.16)',    label: '复古棕褐' },
-    mist:     { bg: '#e9eff0', panel: '#fbffff', text: '#26373b', muted: '#718589', border: 'rgba(38,55,59,.13)',    label: '薄雾冷调' },
-    terminal: { bg: '#07100b', panel: '#0d1b12', text: '#b9f7c5', muted: '#72b981', border: 'rgba(99,255,137,.22)', label: '终端绿' },
+const THEME_META: Record<EchoesTheme, { bg: string; panel: string; text: string; muted: string; border: string; label: string; cardBg: string }> = {
+    paper:    { bg: '#f5f1e8', panel: '#fffdf8', text: '#302b29', muted: '#756d65', border: 'rgba(48,43,41,.12)',    label: '纸感暖白', cardBg: '#f9f6f0' },
+    midnight: { bg: '#11121a', panel: '#1b1e2b', text: '#eef0fa', muted: '#a6abc1', border: 'rgba(255,255,255,.12)', label: '午夜深色', cardBg: '#22253a' },
+    sepia:    { bg: '#ede0c6', panel: '#f8efd9', text: '#432e1f', muted: '#876d56', border: 'rgba(67,46,31,.16)',    label: '复古棕褐', cardBg: '#f2e6cc' },
+    mist:     { bg: '#e9eff0', panel: '#fbffff', text: '#26373b', muted: '#718589', border: 'rgba(38,55,59,.13)',    label: '薄雾冷调', cardBg: '#edf4f5' },
+    terminal: { bg: '#07100b', panel: '#0d1b12', text: '#b9f7c5', muted: '#72b981', border: 'rgba(99,255,137,.22)', label: '终端绿', cardBg: '#0f2018' },
 };
 
 /**
@@ -1040,7 +1040,7 @@ const EchoesApp: React.FC = () => {
     const [input, setInput] = useState('');
     const [sourceVisible, setSourceVisible] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
-    const [settingsSection, setSettingsSection] = useState<'appearance' | 'experience' | 'writing' | 'data'>('appearance');
+    const [settingsSection, setSettingsSection] = useState<'appearance' | 'mechanics' | 'experience' | 'writing' | 'data'>('appearance');
     const [showInspector, setShowInspector] = useState(false);
     const [showWritingGuideSheet, setShowWritingGuideSheet] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -2513,15 +2513,53 @@ const EchoesApp: React.FC = () => {
             <div className="grid grid-cols-2 gap-2">
                 {([
                     ['appearance', '外观与阅读', Palette],
+                    ['mechanics', '机制样式', Lightbulb],
                     ['experience', '剧情与生成', Sparkle],
                     ['writing', '写作与叙事', PencilSimple],
                     ['data', 'API、存档与数据', Archive],
                 ] as const).map(([key, label, Icon]) => <button key={key} type="button" onClick={() => setSettingsSection(key)} className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-[11px] transition" style={{ borderColor: settingsSection === key ? ui.accent : palette.border, background: settingsSection === key ? `${ui.accent}12` : `${palette.panel}70`, color: settingsSection === key ? ui.accent : palette.text }}><Icon size={15} /><span className="font-semibold">{label}</span></button>)}
             </div>
+            {settingsSection === 'mechanics' && <div className="space-y-4">
+                <p className="text-[10.5px] leading-relaxed opacity-50">为每种机制类型设置独立的配色和图标，让「查看」页面更直观易读。</p>
+                <div className="space-y-3">
+                    {(['resource_panel', 'character_card', 'inventory', 'quest_log', 'relationship_map', 'timeline', 'rules_panel', 'live_feed', 'leaderboard', 'achievement_list', 'weather_widget', 'dialogue_tree', 'map_widget', 'clue_board', 'skill_tree', 'merchant_shop'] as const).map(type => {
+                        const currentStyle = ui.mechanicStyles?.[type];
+                        return (
+                            <div key={type} className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.cardBg }}>
+                                <div className="mb-2 flex items-center justify-between">
+                                    <span className="text-[11px] font-bold opacity-70">{type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                                    <div className="flex items-center gap-2">
+                                        <input 
+                                            type="color" 
+                                            value={currentStyle?.color || ui.accent} 
+                                            onChange={e => void updateUI({ mechanicStyles: { ...ui.mechanicStyles, [type]: { ...currentStyle, color: e.target.value } } })}
+                                            className="h-6 w-6 rounded border-0 cursor-pointer"
+                                            title="配色"
+                                        />
+                                        <input 
+                                            type="text" 
+                                            value={currentStyle?.icon || ''} 
+                                            onChange={e => void updateUI({ mechanicStyles: { ...ui.mechanicStyles, [type]: { ...currentStyle, icon: e.target.value } } })}
+                                            placeholder="🎯"
+                                            className="w-12 rounded-lg border bg-transparent px-2 py-1 text-center text-[11px] outline-none"
+                                            style={{ borderColor: palette.border }}
+                                            title="Emoji 图标"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 rounded-lg p-2" style={{ background: `${currentStyle?.color || ui.accent}12`, color: currentStyle?.color || ui.accent }}>
+                                    <span className="text-base">{currentStyle?.icon || '📋'}</span>
+                                    <span className="text-[10px] font-medium">{type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} 示例</span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>}
             {settingsSection === 'experience' && <div className="space-y-4">{renderExperienceSettings()}</div>}
             {settingsSection === 'appearance' && <div className="space-y-4">
             {/* 配置应用范围 */}
-            <div className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.panel }}>
+            <div className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.cardBg }}>
                 <span className="mb-2 block text-[11px] font-bold opacity-70">配置应用范围</span>
                 <p className="mb-3 text-[10px] leading-relaxed opacity-50">
                     修改外观后，可以选择只应用到当前世界，或设为所有新建世界的默认配置。
