@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Archive, ArrowLeft, ArrowRight, BookOpenText, BookmarkSimple, BracketsCurly, CaretDoubleDown, CaretDoubleUp, CaretDown, CaretUp, Check, CircleNotch, Compass,
-    Copy, Eye, FileText, GearSix, GitBranch, Globe, ImageSquare, MapPin, Palette,
+    Copy, Eye, FileText, GearSix, GitBranch, Globe, ImageSquare, Lightbulb, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
     X,
 } from '@phosphor-icons/react';
@@ -48,6 +48,7 @@ const FORMAT_LABELS: Record<EchoesFormat, string> = {
 const DEFAULT_FORMATS: EchoesFormat[] = [...ALL_FORMATS];
 
 const DEFAULT_LABELS = {
+    storyTab: '本纪', hubTab: '查看',
     people: '人物', quests: '任务', clues: '线索', inventory: '物品',
     chapters: '章节', saves: '存档', time: '时间', location: '地点',
 };
@@ -2281,11 +2282,49 @@ const EchoesApp: React.FC = () => {
             <div className="grid grid-cols-2 gap-2">
                 {([
                     ['appearance', '外观与阅读', Palette],
+                    ['mechanics', '机制样式', Lightbulb],
                     ['experience', '剧情与生成', Sparkle],
                     ['writing', '写作与叙事', PencilSimple],
                     ['data', 'API、存档与数据', Archive],
                 ] as const).map(([key, label, Icon]) => <button key={key} type="button" onClick={() => setSettingsSection(key)} className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-[11px] transition" style={{ borderColor: settingsSection === key ? ui.accent : palette.border, background: settingsSection === key ? `${ui.accent}12` : `${palette.panel}70`, color: settingsSection === key ? ui.accent : palette.text }}><Icon size={15} /><span className="font-semibold">{label}</span></button>)}
             </div>
+            {settingsSection === 'mechanics' && <div className="space-y-4">
+                <p className="text-[10.5px] leading-relaxed opacity-50">为每种机制类型设置独立的配色和图标，让「查看」页面更直观易读。</p>
+                <div className="space-y-3">
+                    {(['resource_panel', 'character_card', 'inventory', 'quest_log', 'relationship_map', 'timeline', 'rules_panel', 'live_feed', 'leaderboard', 'achievement_list', 'weather_widget', 'dialogue_tree', 'map_widget', 'clue_board', 'skill_tree', 'merchant_shop'] as const).map(type => {
+                        const currentStyle = ui.mechanicStyles?.[type];
+                        return (
+                            <div key={type} className="rounded-xl border p-3" style={{ borderColor: palette.border, background: palette.cardBg }}>
+                                <div className="mb-2 flex items-center justify-between">
+                                    <span className="text-[11px] font-bold opacity-70">{type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                                    <div className="flex items-center gap-2">
+                                        <input 
+                                            type="color" 
+                                            value={currentStyle?.color || ui.accent} 
+                                            onChange={e => void updateUI({ mechanicStyles: { ...ui.mechanicStyles, [type]: { ...currentStyle, color: e.target.value } } })}
+                                            className="h-6 w-6 rounded border-0 cursor-pointer"
+                                            title="配色"
+                                        />
+                                        <input 
+                                            type="text" 
+                                            value={currentStyle?.icon || ''} 
+                                            onChange={e => void updateUI({ mechanicStyles: { ...ui.mechanicStyles, [type]: { ...currentStyle, icon: e.target.value } } })}
+                                            placeholder="🎯"
+                                            className="w-12 rounded-lg border bg-transparent px-2 py-1 text-center text-[11px] outline-none"
+                                            style={{ borderColor: palette.border }}
+                                            title="Emoji 图标"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 rounded-lg p-2" style={{ background: `${currentStyle?.color || ui.accent}12`, color: currentStyle?.color || ui.accent }}>
+                                    <span className="text-base">{currentStyle?.icon || '📋'}</span>
+                                    <span className="text-[10px] font-medium">{type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} 示例</span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>}
             {settingsSection === 'experience' && <div className="space-y-4">{renderExperienceSettings()}</div>}
             {settingsSection === 'appearance' && <div className="space-y-4">
             {/* 配置应用范围 */}
@@ -2545,8 +2584,8 @@ const EchoesApp: React.FC = () => {
             ? 'radial-gradient(ellipse at 80% 0%, rgba(129,140,248,.14), transparent 50%), radial-gradient(ellipse at 0% 80%, rgba(244,114,182,.07), transparent 48%)'
             : `radial-gradient(ellipse at 80% 0%, ${ui.accent}12, transparent 52%)`;
     const tabItems = [
-        { key: 'story' as const, label: '本纪', icon: BookOpenText },
-        { key: 'hub' as const, label: '查看', icon: BookmarkSimple },
+        { key: 'story' as const, label: ui.labels.storyTab, icon: BookOpenText },
+        { key: 'hub' as const, label: ui.labels.hubTab, icon: BookmarkSimple },
         { key: 'relations' as const, label: ui.labels.people, icon: UsersThree },
         { key: 'lore' as const, label: '世界志', icon: Globe },
         { key: 'highlights' as const, label: '回想', icon: Archive },

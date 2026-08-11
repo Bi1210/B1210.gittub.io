@@ -3344,6 +3344,10 @@ export type EchoesFormat =
     | 'csv' | 'tsv' | 'sql' | 'svg' | 'mermaid' | 'plantuml' | 'mindmap';
 
 export interface EchoesLabels {
+    // 顶部 Tab 名称
+    storyTab: string;
+    hubTab: string;
+    // 机制卡片标签
     people: string;
     quests: string;
     clues: string;
@@ -3413,6 +3417,12 @@ export interface EchoesUIGlobalConfig {
     fontFamily: 'serif' | 'sans' | 'mono';
     fontScale: number;
     lineHeight: number;
+    letterSpacing: number;
+    paragraphSpacing: number;
+    borderRadius: number;
+    cardStyle: 'flat' | 'bordered' | 'elevated';
+    spacing: 'compact' | 'comfortable' | 'spacious';
+    typewriterSpeed: number;
     customBg?: string;
     customPanel?: string;
     customText?: string;
@@ -3439,6 +3449,12 @@ export interface EchoesUIWorldOverride {
     fontFamily?: 'serif' | 'sans' | 'mono';
     fontScale?: number;
     lineHeight?: number;
+    letterSpacing?: number;
+    paragraphSpacing?: number;
+    borderRadius?: number;
+    cardStyle?: 'flat' | 'bordered' | 'elevated';
+    spacing?: 'compact' | 'comfortable' | 'spacious';
+    typewriterSpeed?: number;
     customBg?: string;
     customPanel?: string;
     customText?: string;
@@ -3470,6 +3486,12 @@ export interface EchoesUIProfile {
     fontFamily: 'serif' | 'sans' | 'mono';
     fontScale: number;
     lineHeight: number;
+    letterSpacing: number;
+    paragraphSpacing: number;
+    borderRadius: number;
+    cardStyle: 'flat' | 'bordered' | 'elevated';
+    spacing: 'compact' | 'comfortable' | 'spacious';
+    typewriterSpeed: number;
     /** 自定义颜色覆盖，空字符串 = 跟随内置主题 */
     customBg?: string;
     customPanel?: string;
@@ -3489,6 +3511,8 @@ export interface EchoesUIProfile {
     /** 世界观自适应 UI 是否已被用户手动覆盖；true 时不再被创建流程的自动推断覆盖。 */
     adaptiveLocked?: boolean;
     labels: EchoesLabels;
+    /** 每种机制类型的独立样式配置（配色 + 图标） */
+    mechanicStyles?: Record<string, { color?: string; icon?: string }>;
 }
 
 /**
