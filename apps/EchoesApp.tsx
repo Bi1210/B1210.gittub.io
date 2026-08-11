@@ -1316,10 +1316,19 @@ const EchoesApp: React.FC = () => {
      * 审查服务失败时保留原稿，不能因为质量服务故障让玩家丢掉本轮剧情。
      */
     /**
-     * 验证 AI 输出的字数是否符合要求
-     * @returns { valid: boolean, actual: number, expected: string }
+     * 准确统计文本实际字数（按字符长度，简单可靠）
      */
-    const validateWordCount = (payload: any, minWords: number, maxWords: number): { valid: boolean, actual: number, expected: string } => {
+    const countActualWords = (text: string): number => {
+        if (!text) return 0;
+        // 用字符长度（汉字、字母、数字都算1个单位）
+        // 这比"汉字+英文单词"的方法更准确，也更容易理解
+        return text.length;
+    };
+
+    /**
+     * 验证 AI 输出的字数是否符合要求
+     */
+    const validateWordCount = (payload: any, minWords: number, maxWords: number): { valid: boolean, actual: number, expected: string, shortage: number } => {
         // 提取所有 narrative 类型的文本内容
         const narrativeText = Array.isArray(payload.blocks)
             ? payload.blocks
@@ -1328,10 +1337,7 @@ const EchoesApp: React.FC = () => {
                 .join('')
             : (payload.narrative || payload.gm_narrative || '');
         
-        // 统计汉字 + 英文单词数（粗略但快速的方法）
-        const chineseChars = (narrativeText.match(/[\u4e00-\u9fa5]/g) || []).length;
-        const englishWords = (narrativeText.match(/[a-zA-Z]+/g) || []).length;
-        const totalWords = chineseChars + englishWords;
+        const actual = countActualWords(narrativeText);
         
         const expected = minWords && maxWords 
             ? `${minWords}-${maxWords}字` 
@@ -1341,12 +1347,39 @@ const EchoesApp: React.FC = () => {
                     ? `最多${maxWords}字` 
                     : '无限制';
         
-        // 宽松验证：允许 ±20% 浮动
-        const minAcceptable = minWords ? minWords * 0.8 : 0;
-        const maxAcceptable = maxWords ? maxWords * 1.2 : Infinity;
-        const valid = totalWords >= minAcceptable && totalWords <= maxAcceptable;
+        // 严格验证：字数必须在范围内
+        const valid = (!minWords || actual >= minWords) && (!maxWords || actual <= maxWords);
+        const shortage = minWords > actual ? minWords - actual : 0;
         
-        return { valid, actual: totalWords, expected };
+        return { valid, actual, expected, shortage };
+    };
+
+    /**
+     * 补全文本到最少字数（如果太短，在末尾补充描写细节）
+     */
+    const padTextToMinWords = (payload: any, minWords: number): any => {
+        if (!Array.isArray(payload.blocks)) return payload;
+        
+        const narrativeBlocks = payload.blocks.filter((b: any) => b?.kind === 'narrative');
+        if (narrativeBlocks.length === 0) return payload;
+        
+        const lastBlock = narrativeBlocks[narrativeBlocks.length - 1];
+        const currentText = lastBlock.content || '';
+        const needed = minWords - countActualWords(currentText);
+        
+        if (needed <= 0) return payload;
+        
+        // 补充一段描写
+        const padding = `\n\n${currentText.includes('。') ? '' : ''}她停下脚步，环顾四周。光线在此刻显得格外柔和，投下了长长的影子。空气中弥漫着一股微妙的味道，混合着时间的沉寂和等待。她的呼吸声在这片宁静中显得格外清晰。一切都在等待，等待着什么即将发生。`.slice(0, needed + 100);
+        
+        return {
+            ...payload,
+            blocks: payload.blocks.map((b: any) => 
+                b === lastBlock 
+                    ? { ...b, content: (b.content || '') + padding }
+                    : b
+            ),
+        };
     };
 
     const reviewPayload = async (world: EchoesWorld, action: string, draftPayload: any): Promise<any> => {
@@ -1590,7 +1623,7 @@ const EchoesApp: React.FC = () => {
             let payloadRaw: any;
             let payload: any;
             let retryCount = 0;
-            const maxRetries = 3;
+            const maxRetries = 7;
             const minWords = seed.writingGuide?.minWords || 0;
             const maxWords = seed.writingGuide?.maxWords || 0;
 
@@ -1600,22 +1633,25 @@ const EchoesApp: React.FC = () => {
                 payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
                 payloadRaw = await reviewPayload(seed, '（开场）', payloadRaw);
                 
-                // 验证字数
+                // 验证字数（用户自定义的约束，必须遵守）
                 if (minWords > 0 || maxWords > 0) {
                     const validation = validateWordCount(payloadRaw, minWords, maxWords);
                     if (!validation.valid) {
                         retryCount++;
                         if (retryCount < maxRetries) {
-                            console.warn(`[Echoes] 开场字数不符（实际${validation.actual}字，要求${validation.expected}），第${retryCount}次重试...`);
-                            addToast(`开场字数不符（${validation.actual}字/${validation.expected}），重试中...`, 'info');
-                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            console.warn(`[Echoes] 开场 AI 未遵守字数要求（实际${validation.actual}字，要求${validation.expected}），第${retryCount}次重试...`);
+                            addToast(`❌ 开场 AI 未遵守字数要求（${validation.actual}字/${validation.expected}）\n重试 ${retryCount}/${maxRetries-1}...`, 'info');
+                            await new Promise(resolve => setTimeout(resolve, 1500));
                             continue;
                         } else {
-                            console.warn(`[Echoes] 重试${maxRetries}次后仍不符合字数要求，接受当前输出`);
-                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'info');
+                            // 最后一次也失败，直接抛错拒绝
+                            const errorMsg = `开场生成失败：AI 无法遵守你的字数要求。已重试 ${maxRetries-1} 次，仍然输出 ${validation.actual} 字（要求${validation.expected}）。请调整字数限制或尝试不同的 AI 模型。`;
+                            console.error(`[Echoes] ${errorMsg}`);
+                            addToast(errorMsg, 'error');
+                            throw new Error(errorMsg);
                         }
                     } else if (retryCount > 0) {
-                        addToast(`开场字数验证通过（${validation.actual}字）`, 'success');
+                        addToast(`✓ 开场字数验证通过（${validation.actual}字/${validation.expected}）`, 'success');
                     }
                 }
                 
@@ -1767,7 +1803,7 @@ const EchoesApp: React.FC = () => {
             let payloadRaw: any;
             let payload: any;
             let retryCount = 0;
-            const maxRetries = 3;
+            const maxRetries = 7;
             const minWords = baseWorld.writingGuide?.minWords || 0;
             const maxWords = baseWorld.writingGuide?.maxWords || 0;
 
@@ -1777,22 +1813,25 @@ const EchoesApp: React.FC = () => {
                 payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
                 payloadRaw = await reviewPayload(promptWorld, narrativeAction, payloadRaw);
                 
-                // 验证字数
+                // 验证字数（用户自定义的约束，必须遵守）
                 if (minWords > 0 || maxWords > 0) {
                     const validation = validateWordCount(payloadRaw, minWords, maxWords);
                     if (!validation.valid) {
                         retryCount++;
                         if (retryCount < maxRetries) {
-                            console.warn(`[Echoes] 字数不符合要求（实际${validation.actual}字，要求${validation.expected}），第${retryCount}次重试...`);
-                            addToast(`字数不符（${validation.actual}字/${validation.expected}），重试中...`, 'info');
-                            await new Promise(resolve => setTimeout(resolve, 1000)); // 短暂延迟避免过快重试
+                            console.warn(`[Echoes] AI 未遵守字数要求（实际${validation.actual}字，要求${validation.expected}），第${retryCount}次重试...`);
+                            addToast(`❌ AI 未遵守字数要求（${validation.actual}字/${validation.expected}）\n重试 ${retryCount}/${maxRetries-1}...`, 'info');
+                            await new Promise(resolve => setTimeout(resolve, 1500));
                             continue;
                         } else {
-                            console.warn(`[Echoes] 重试${maxRetries}次后仍不符合字数要求，接受当前输出`);
-                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'info');
+                            // 最后一次也失败，直接抛错拒绝
+                            const errorMsg = `AI 无法遵守你的字数要求。已重试 ${maxRetries-1} 次，仍然输出 ${validation.actual} 字（要求${validation.expected}）。请调整字数限制或尝试不同的 AI 模型。`;
+                            console.error(`[Echoes] ${errorMsg}`);
+                            addToast(errorMsg, 'error');
+                            throw new Error(errorMsg);
                         }
                     } else if (retryCount > 0) {
-                        addToast(`字数验证通过（${validation.actual}字）`, 'success');
+                        addToast(`✓ 字数验证通过（${validation.actual}字/${validation.expected}）`, 'success');
                     }
                 }
                 
