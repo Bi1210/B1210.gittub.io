@@ -2625,7 +2625,7 @@ const EchoesApp: React.FC = () => {
                 </span>
             </div>}
 
-            {hasSuggestions && <div className="mb-1.5">
+            {hasSuggestions && !(lastTurn?.choices?.length) && <div className="mb-1.5">
                 <button type="button" onClick={() => setSuggestionsExpanded(value => !value)} aria-expanded={suggestionsExpanded} className="flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-[10.5px] transition hover:bg-black/5" style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06`, color: palette.muted }}>
                     <span><span style={{ color: ui.accent }}>你可以</span><span className="mx-1 opacity-50">·</span>{suggestionsExpanded ? '选择一种介入方式' : '让这一刻继续展开'}</span>
                     <CaretDown size={14} style={{ color: ui.accent, transform: suggestionsExpanded ? 'rotate(180deg)' : undefined }} />
