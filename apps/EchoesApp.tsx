@@ -1049,7 +1049,8 @@ const EchoesApp: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'story' | 'hub' | 'lore' | 'relations' | 'highlights'>('story'); 
     const [activeHubTab, setActiveHubTab] = useState<string>('status'); // 枢纽（查看）二级 Tab：状态、任务、规则、直播、战利品、线索
     const [showRawState, setShowRawState] = useState(false); // 状态页里的原始 JSON 折叠开关
-    const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
+    const [suggestionsExpanded, setSuggestionsExpanded] = useState(true);
+    const [choicesExpanded, setChoicesExpanded] = useState(false); // 正式选项默认折叠
     const [showNaturalProgressHint, setShowNaturalProgressHint] = useState(false);
     const [naturalProgressConfirmed, setNaturalProgressConfirmed] = useState(false);
     const [isNearLatest, setIsNearLatest] = useState(true);
@@ -1314,6 +1315,40 @@ const EchoesApp: React.FC = () => {
      * maximum：每轮审查；high：关键回合或每三轮审查；standard：不额外消耗请求。
      * 审查服务失败时保留原稿，不能因为质量服务故障让玩家丢掉本轮剧情。
      */
+    /**
+     * 验证 AI 输出的字数是否符合要求
+     * @returns { valid: boolean, actual: number, expected: string }
+     */
+    const validateWordCount = (payload: any, minWords: number, maxWords: number): { valid: boolean, actual: number, expected: string } => {
+        // 提取所有 narrative 类型的文本内容
+        const narrativeText = Array.isArray(payload.blocks)
+            ? payload.blocks
+                .filter((b: any) => b?.kind === 'narrative' && typeof b.content === 'string')
+                .map((b: any) => b.content)
+                .join('')
+            : (payload.narrative || payload.gm_narrative || '');
+        
+        // 统计汉字 + 英文单词数（粗略但快速的方法）
+        const chineseChars = (narrativeText.match(/[\u4e00-\u9fa5]/g) || []).length;
+        const englishWords = (narrativeText.match(/[a-zA-Z]+/g) || []).length;
+        const totalWords = chineseChars + englishWords;
+        
+        const expected = minWords && maxWords 
+            ? `${minWords}-${maxWords}字` 
+            : minWords 
+                ? `至少${minWords}字` 
+                : maxWords 
+                    ? `最多${maxWords}字` 
+                    : '无限制';
+        
+        // 宽松验证：允许 ±20% 浮动
+        const minAcceptable = minWords ? minWords * 0.8 : 0;
+        const maxAcceptable = maxWords ? maxWords * 1.2 : Infinity;
+        const valid = totalWords >= minAcceptable && totalWords <= maxAcceptable;
+        
+        return { valid, actual: totalWords, expected };
+    };
+
     const reviewPayload = async (world: EchoesWorld, action: string, draftPayload: any): Promise<any> => {
         const quality = world.qualityMode || 'maximum';
         const critical = isCriticalAction(action, draftPayload);
@@ -1548,11 +1583,46 @@ const EchoesApp: React.FC = () => {
         try {
             const wordsNeeded = seed.writingGuide?.minWords || 0;
             const dynamicMaxTokens = Math.max(6500, wordsNeeded * 2.5 + 2000);
-            const data = await requestAI(basePrompt(seed, '（开场）', true), dynamicMaxTokens, seed.title);
-            const raw = extractContent(data) || '';
-            let payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
-            payloadRaw = await reviewPayload(seed, '（开场）', payloadRaw);
-            const payload = parseTurnPayload(payloadRaw, seed, raw);
+            
+            // ✅ 字数验证与自动重试（最多3次）
+            let data: any;
+            let raw: string;
+            let payloadRaw: any;
+            let payload: any;
+            let retryCount = 0;
+            const maxRetries = 3;
+            const minWords = seed.writingGuide?.minWords || 0;
+            const maxWords = seed.writingGuide?.maxWords || 0;
+
+            while (retryCount < maxRetries) {
+                data = await requestAI(basePrompt(seed, '（开场）', true), dynamicMaxTokens, seed.title);
+                raw = extractContent(data) || '';
+                payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
+                payloadRaw = await reviewPayload(seed, '（开场）', payloadRaw);
+                
+                // 验证字数
+                if (minWords > 0 || maxWords > 0) {
+                    const validation = validateWordCount(payloadRaw, minWords, maxWords);
+                    if (!validation.valid) {
+                        retryCount++;
+                        if (retryCount < maxRetries) {
+                            console.warn(`[Echoes] 开场字数不符（实际${validation.actual}字，要求${validation.expected}），第${retryCount}次重试...`);
+                            addToast(`开场字数不符（${validation.actual}字/${validation.expected}），重试中...`, 'info');
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            continue;
+                        } else {
+                            console.warn(`[Echoes] 重试${maxRetries}次后仍不符合字数要求，接受当前输出`);
+                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'warning');
+                        }
+                    } else if (retryCount > 0) {
+                        addToast(`开场字数验证通过（${validation.actual}字）`, 'success');
+                    }
+                }
+                
+                break; // 字数验证通过或无字数要求，跳出循环
+            }
+
+            payload = parseTurnPayload(payloadRaw, seed, raw);
             const before = cloneState(seed.state);
             const after = applyStatePatch(before, payload);
             const beforeDirector = cloneDirector(seed.director);
@@ -1691,11 +1761,45 @@ const EchoesApp: React.FC = () => {
             const wordsNeeded = baseWorld.writingGuide?.minWords || 0;
             const dynamicMaxTokens = Math.max(6500, wordsNeeded * 2.5 + 2000);
 
-            const data = await requestAI(basePrompt(promptWorld, narrativeAction, false, preparation?.actionText || ''), dynamicMaxTokens, baseWorld.title);
-            const raw = extractContent(data) || '';
-            let payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
-            payloadRaw = await reviewPayload(promptWorld, narrativeAction, payloadRaw);
-            const payload = parseTurnPayload(payloadRaw, promptWorld, raw);
+            // ✅ 字数验证与自动重试（最多3次）
+            let data: any;
+            let raw: string;
+            let payloadRaw: any;
+            let payload: any;
+            let retryCount = 0;
+            const maxRetries = 3;
+            const minWords = baseWorld.writingGuide?.minWords || 0;
+            const maxWords = baseWorld.writingGuide?.maxWords || 0;
+
+            while (retryCount < maxRetries) {
+                data = await requestAI(basePrompt(promptWorld, narrativeAction, false, preparation?.actionText || ''), dynamicMaxTokens, baseWorld.title);
+                raw = extractContent(data) || '';
+                payloadRaw = extractJson(raw) || { blocks: [{ kind: 'narrative', format: 'markdown', content: raw }] };
+                payloadRaw = await reviewPayload(promptWorld, narrativeAction, payloadRaw);
+                
+                // 验证字数
+                if (minWords > 0 || maxWords > 0) {
+                    const validation = validateWordCount(payloadRaw, minWords, maxWords);
+                    if (!validation.valid) {
+                        retryCount++;
+                        if (retryCount < maxRetries) {
+                            console.warn(`[Echoes] 字数不符合要求（实际${validation.actual}字，要求${validation.expected}），第${retryCount}次重试...`);
+                            addToast(`字数不符（${validation.actual}字/${validation.expected}），重试中...`, 'info');
+                            await new Promise(resolve => setTimeout(resolve, 1000)); // 短暂延迟避免过快重试
+                            continue;
+                        } else {
+                            console.warn(`[Echoes] 重试${maxRetries}次后仍不符合字数要求，接受当前输出`);
+                            addToast(`AI未遵守字数限制（${validation.actual}字/${validation.expected}）`, 'warning');
+                        }
+                    } else if (retryCount > 0) {
+                        addToast(`字数验证通过（${validation.actual}字）`, 'success');
+                    }
+                }
+                
+                break; // 字数验证通过或无字数要求，跳出循环
+            }
+
+            payload = parseTurnPayload(payloadRaw, promptWorld, raw);
             const now = Date.now();
             const before = cloneState(baseWorld.state);
             const after = applyStatePatch(before, payload);
@@ -2911,16 +3015,34 @@ const EchoesApp: React.FC = () => {
             )}
             
             {(lastTurn?.choices?.length ?? 0) > 0 && !lastTurn.endingTriggered && (
-                <div className="mb-2 space-y-1.5">
-                    {lastTurn.choices?.map((choice: any) => (
-                        <button key={choice.id} disabled={choice.disabled || generating} onClick={() => void playAction(choice.label)} className="w-full flex items-center justify-between text-left p-3 rounded-xl border transition disabled:opacity-40" style={{ borderColor: `${ui.accent}30`, background: `${palette.panel}e0` }}>
-                            <div className="flex-1 min-w-0">
-                                <span className="block text-[12.5px] font-bold" style={{ color: ui.accent }}>{choice.label}</span>
-                                {choice.description && <span className="block text-[10px] mt-0.5 leading-relaxed" style={{ color: palette.muted }}>{choice.description}</span>}
-                                {choice.disabledReason && <span className="block text-[9px] mt-1 text-red-500">{choice.disabledReason}</span>}
-                            </div>
-                        </button>
-                    ))}
+                <div className="mb-2">
+                    <button 
+                        type="button" 
+                        onClick={() => setChoicesExpanded(value => !value)} 
+                        aria-expanded={choicesExpanded} 
+                        className="flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-[10.5px] transition hover:bg-black/5 mb-1.5" 
+                        style={{ borderColor: `${ui.accent}38`, background: `${ui.accent}06`, color: palette.muted }}
+                    >
+                        <span>
+                            <span style={{ color: ui.accent }}>正式选项</span>
+                            <span className="mx-1 opacity-50">·</span>
+                            {choicesExpanded ? `${lastTurn.choices?.length ?? 0} 个可选行动` : '点击展开查看'}
+                        </span>
+                        <CaretDown size={14} style={{ color: ui.accent, transform: choicesExpanded ? 'rotate(180deg)' : undefined }} />
+                    </button>
+                    {choicesExpanded && (
+                        <div className="space-y-1.5">
+                            {lastTurn.choices?.map((choice: any) => (
+                                <button key={choice.id} disabled={choice.disabled || generating} onClick={() => void playAction(choice.label)} className="w-full flex items-center justify-between text-left p-3 rounded-xl border transition disabled:opacity-40" style={{ borderColor: `${ui.accent}30`, background: `${palette.panel}e0` }}>
+                                    <div className="flex-1 min-w-0">
+                                        <span className="block text-[12.5px] font-bold" style={{ color: ui.accent }}>{choice.label}</span>
+                                        {choice.description && <span className="block text-[10px] mt-0.5 leading-relaxed" style={{ color: palette.muted }}>{choice.description}</span>}
+                                        {choice.disabledReason && <span className="block text-[9px] mt-1 text-red-500">{choice.disabledReason}</span>}
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
