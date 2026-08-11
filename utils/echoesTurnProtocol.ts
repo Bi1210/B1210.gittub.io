@@ -141,4 +141,14 @@ export const parseEchoesTurnOutput = (response: unknown, options: EchoesTurnPars
     };
 };
 
-export const buildEchoesTurnOutputInstruction = (): string => `只输出合法 JSON，不要代码围栏。正文放在 blocks；关键节点才输出 choices；需要变化的动态组件使用 mechanicPatches。不要输出未注册组件代码，只能使用组件目录中已有的 kind。字段：chapter、mood、blocks、choices、suggestions、statePatch、directorPatch、newKnownFacts、hardFactsToLock、continuitySummary、mechanicPatches，可选 chapterUpdate、endingTriggered。`;
+export const buildEchoesTurnOutputInstruction = (): string => `只输出合法 JSON，不要代码围栏。正文放在 blocks；关键节点才输出 choices；需要变化的动态组件使用 mechanicPatches。不要输出未注册组件代码，只能使用组件目录中已有的 kind。字段：chapter、mood、blocks、choices、suggestions、statePatch、directorPatch、newKnownFacts、hardFactsToLock、continuitySummary、mechanicPatches，可选 chapterUpdate、endingTriggered。
+
+【选项生成硬规则——影响可读性的约束，必须遵守】
+1. 每个选项 = 一个赌注，不是一个技能施放。不要写"尝试用钢笔触碰"，改成"赌钢笔能扎进这道裂缝，或者反过来被吞掉"。
+2. 选项间必须有明显的后果分叉：冒险vs保守、暴露vs隐瞒、相信vs怀疑、主动vs拖延，不能是同一件事的变种（禁止"调查三连"：不能三个选项都是用不同方式调查同一件事）。
+3. 禁止工程师语言："测试该机制是否对物理实体有反馈"→改成故事语言。
+4. 最多给3-4个选项：2-3个"真选项"（各有后果分叉）+ 1个兜底（顺其发展或自由输入）；超过3个真选项反而让玩家决策压力下降。
+5. 每个 label 必须让玩家一眼看出"选了这个会赌什么"，不能模糊抽象。如果需要补充说明用 description 字段。
+6. 禁止每轮都是"调查、分析、观察"的同一套。轮换使用不同类型：有时冒险、有时保守、有时涉及团队、有时涉及立场表态。
+7. 如果本轮没有能显著分叉的选择，就不输出 choices，让玩家用自由输入推进，或用 suggestions 给建议而不是强制选项。
+8. 永远不要让玩家觉得"选哪个都一样"——这是选项的死刑。`;
