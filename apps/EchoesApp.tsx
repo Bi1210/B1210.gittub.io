@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Archive, ArrowLeft, ArrowRight, BookOpenText, BookmarkSimple, BracketsCurly, CaretDoubleDown, CaretDoubleUp, CaretDown, CaretUp, Check, CircleNotch, Compass,
-    Copy, Eye, FileText, GearSix, GitBranch, Globe, MapPin, Palette,
+    Copy, Eye, FileText, GearSix, GitBranch, Globe, ImageSquare, MapPin, Palette,
     PencilSimple, Plus, ArrowCounterClockwise, Sparkle, Trash, UsersThree, WarningCircle,
     X,
 } from '@phosphor-icons/react';
@@ -1027,7 +1027,7 @@ const EchoesApp: React.FC = () => {
     const [whisperingMode, setWhisperingMode] = useState(false); // 低语模式：开启时输入直接发送给 AI 写作本体，不记入正文历史
     const [creationMethod, setCreationMethod] = useState<'manual' | 'ai' | 'random' | 'novel' | 'package'>('manual');
     const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
-    const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'] });
+    const [draft, setDraft] = useState({ title: '', world: '', identity: '', cast: '', mode: 'interactive' as EchoesMode, qualityMode: 'maximum' as EchoesQualityMode, formatting: 'adaptive' as EchoesWorld['formattingPreference'], coverImage: '' });
     const [aiIdea, setAiIdea] = useState('');
     // 随机生成世界的可选条件；全部留空即可一键随机，填了则作为 AI 生成的约束。
     const [randomHints, setRandomHints] = useState({ genre: '', mood: '', scale: '', fixedIdentity: false, intensity: '', style: '' });
@@ -1459,6 +1459,7 @@ const EchoesApp: React.FC = () => {
             cast: draft.cast.trim(),
             mode: draft.mode, qualityMode: draft.qualityMode, allowedFormats: [...DEFAULT_FORMATS], formattingPreference: draft.formatting,
             ui: finalUI,
+            coverImage: draft.coverImage || undefined,
             initialState: { time: '序幕', location: '未知', chapter: '序章', inventory: [], resources: {}, custom: {} },
             initialHardFacts: [],
             initialMechanics: selectedPackage ? selectedPackage.initialMechanics : [],
@@ -1510,7 +1511,7 @@ const EchoesApp: React.FC = () => {
             const safeWorld = sanitizeEchoesWorldForStorage(world) as EchoesWorld;
             await DB.saveEchoesWorld(safeWorld);
             setWorlds(prev => [safeWorld, ...prev]); setActiveWorld(safeWorld); setView('cover'); setFreshTurnId(turn.id);
-            setDraft({ title: '', world: '', identity: '', cast: '', mode: 'interactive', qualityMode: 'maximum', formatting: 'adaptive' });
+            setDraft({ title: '', world: '', identity: '', cast: '', mode: 'interactive', qualityMode: 'maximum', formatting: 'adaptive', coverImage: '' });
             setDraftWritingGuide({ ...DEFAULT_WRITING_GUIDE });
             setDraftProtocol({ ...DEFAULT_PROTOCOL });
             setDraftUICustomized(false);
@@ -1954,7 +1955,7 @@ const EchoesApp: React.FC = () => {
         <header className="flex items-center justify-between border-b border-white/10 px-5 py-4"><div><div className="text-2xl font-black tracking-[.12em]">Echoes</div><div className="mt-1 text-[10px] uppercase tracking-[.28em] text-white/40">adaptive narrative worlds</div></div><div className="flex gap-2"><button onClick={closeApp} className="rounded-xl p-2 text-white/60 hover:bg-white/10" aria-label="返回"><ArrowLeft size={21} /></button><button onClick={() => setShowApiSettings(true)} className="rounded-xl p-2 text-white/60 hover:bg-white/10" aria-label="Echoes API 设置"><GearSix size={19} /></button><button onClick={() => setView('create')} className="flex items-center gap-1 rounded-xl bg-violet-500 px-3 py-2 text-xs font-bold shadow-lg shadow-violet-500/20"><Plus size={16} /> 新建世界</button></div></header>
         <div className="min-h-0 flex-1 overflow-y-auto p-5 pb-[calc(2rem+var(--safe-bottom,0px))]">
             <div className="mb-5 rounded-3xl border border-white/10 bg-gradient-to-br from-violet-500/20 to-cyan-500/10 p-5"><div className="mb-2 flex items-center gap-2 text-violet-200"><Sparkle size={18} weight="fill" /><span className="text-xs font-bold tracking-widest">Echoes</span></div><h1 className="text-xl font-bold leading-tight">在你定义的世界里，留下只属于你的回响。</h1><p className="mt-2 text-xs leading-relaxed text-white/55">自定义世界、身份、玩法与界面。AI负责创作，系统负责连续性；每个世界都有独立存档。</p></div>
-            {loading ? <div className="flex items-center justify-center py-20 text-white/45"><CircleNotch className="animate-spin" size={22} /></div> : worlds.length === 0 ? <div className="rounded-3xl border border-dashed border-white/15 py-16 text-center text-white/45"><BookOpenText className="mx-auto mb-3" size={32} /><p className="text-sm">还没有 Echoes 世界</p><button onClick={() => setView('create')} className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-xs text-white hover:bg-white/15">创建第一个世界</button></div> : <div className="grid gap-3">{worlds.map(world => <div key={world.id} className="group relative rounded-2xl border border-white/10 bg-white/[.055] p-4 transition hover:bg-white/[.09]"><button onClick={() => openWorld(world)} className="block w-full text-left"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate text-base font-bold">{world.title}</h2><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/50">{world.worldSetting}</p></div><span className="shrink-0 rounded-lg bg-white/10 px-2 py-1 text-[10px] text-white/60">{modeLabel(world.mode)}</span></div><div className="mt-3 flex items-center gap-3 text-[10px] text-white/35"><span>{world.turns.length} 回合</span><span>·</span><span>{world.state.location}</span><span className="ml-auto">{new Date(world.lastPlayedAt).toLocaleDateString()}</span></div></button><button onClick={() => setConfirmDelete(world.id)} className="absolute right-3 bottom-3 rounded-lg p-1.5 text-white/25 transition hover:bg-red-500/20 hover:text-red-300 active:scale-95" aria-label="删除世界"><Trash size={14} /></button>{confirmDelete === world.id && <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-[#15161d]/95 p-4"><div className="text-center"><WarningCircle className="mx-auto mb-2 text-red-300" size={24} /><p className="text-xs">确定删除《{world.title}》？</p><div className="mt-3 flex justify-center gap-2"><button onClick={() => setConfirmDelete(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs">取消</button><button onClick={() => void deleteWorld(world.id)} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs">删除</button></div></div></div>}</div>)}</div>}
+            {loading ? <div className="flex items-center justify-center py-20 text-white/45"><CircleNotch className="animate-spin" size={22} /></div> : worlds.length === 0 ? <div className="rounded-3xl border border-dashed border-white/15 py-16 text-center text-white/45"><BookOpenText className="mx-auto mb-3" size={32} /><p className="text-sm">还没有 Echoes 世界</p><button onClick={() => setView('create')} className="mt-4 rounded-xl bg-white/10 px-4 py-2 text-xs text-white hover:bg-white/15">创建第一个世界</button></div> : <div className="grid gap-3">{worlds.map(world => <div key={world.id} className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[.055] transition hover:bg-white/[.09]" style={world.coverImage ? { backgroundImage: `url(${world.coverImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}>{world.coverImage && <div className="absolute inset-0 z-0" style={{ background: 'linear-gradient(to bottom, rgba(13,14,19,0.75) 0%, rgba(13,14,19,0.92) 100%)' }} />}<div className="relative z-[1] p-4"><button onClick={() => openWorld(world)} className="block w-full text-left"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate text-base font-bold">{world.title}</h2><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/50">{world.worldSetting}</p></div><span className="shrink-0 rounded-lg bg-white/10 px-2 py-1 text-[10px] text-white/60">{modeLabel(world.mode)}</span></div><div className="mt-3 flex items-center gap-3 text-[10px] text-white/35"><span>{world.turns.length} 回合</span><span>·</span><span>{world.state.location}</span><span className="ml-auto">{new Date(world.lastPlayedAt).toLocaleDateString()}</span></div></button><button onClick={() => setConfirmDelete(world.id)} className="absolute right-3 bottom-3 rounded-lg p-1.5 text-white/25 transition hover:bg-red-500/20 hover:text-red-300 active:scale-95" aria-label="删除世界"><Trash size={14} /></button></div>{confirmDelete === world.id && <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-[#15161d]/95 p-4"><div className="text-center"><WarningCircle className="mx-auto mb-2 text-red-300" size={24} /><p className="text-xs">确定删除《{world.title}》？</p><div className="mt-3 flex justify-center gap-2"><button onClick={() => setConfirmDelete(null)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs">取消</button><button onClick={() => void deleteWorld(world.id)} className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs">删除</button></div></div></div>}</div>)}</div>}
         </div>
         {renderApiSettings()}
     </div>;
@@ -2124,6 +2125,46 @@ const EchoesApp: React.FC = () => {
                     </div>}
 
                     {createStep === 4 && <div className="animate-fade-in">
+                        {/* 封面图上传 */}
+                        <div className="mb-5 overflow-hidden rounded-2xl border border-white/10 bg-white/[.03] p-4">
+                            <span className="mb-2 block text-[13px] font-bold text-white/85">世界封面图（可选）</span>
+                            <p className="mb-3 text-[10.5px] leading-relaxed text-white/40">为你的世界添加一张封面图，会显示在世界库卡片和进入世界时的开屏页。</p>
+                            {draft.coverImage ? (
+                                <div className="relative">
+                                    <div className="h-32 overflow-hidden rounded-xl border border-white/10" style={{ backgroundImage: `url(${draft.coverImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                                    <button onClick={() => setDraft({ ...draft, coverImage: '' })} className="absolute right-2 top-2 rounded-lg bg-black/60 p-1.5 text-white/80 backdrop-blur-sm hover:bg-black/80" aria-label="移除封面图"><X size={14} /></button>
+                                </div>
+                            ) : (
+                                <button onClick={() => {
+                                    const input = document.createElement('input');
+                                    input.type = 'file';
+                                    input.accept = 'image/*';
+                                    input.onchange = async (e: any) => {
+                                        try {
+                                            const file = e.target?.files?.[0];
+                                            if (!file) return;
+                                            if (file.size > 5 * 1024 * 1024) {
+                                                addToast('图片过大，请选择小于 5MB 的图片', 'error');
+                                                return;
+                                            }
+                                            const reader = new FileReader();
+                                            reader.onload = () => {
+                                                const base64 = reader.result as string;
+                                                setDraft({ ...draft, coverImage: base64 });
+                                            };
+                                            reader.readAsDataURL(file);
+                                        } catch {
+                                            addToast('图片读取失败', 'error');
+                                        }
+                                    };
+                                    input.click();
+                                }} className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 py-5 text-[12px] text-white/50 transition hover:border-white/30 hover:bg-white/[.02]">
+                                    <ImageSquare size={18} />选择图片
+                                </button>
+                            )}
+                        </div>
+
+                        {/* 世界观自适应 / 自定义主题 */}
                         {(() => {
                             const preview = inferAdaptiveUI(draft.world);
                             return (
@@ -2310,7 +2351,11 @@ const EchoesApp: React.FC = () => {
         const currentChapter = world.turns.length ? (world.turns[world.turns.length - 1].chapter || world.state.chapter) : world.state.chapter;
         return <div className="echoes-root relative flex h-full min-h-0 flex-col overflow-hidden" style={{ background: coverPalette.bg, color: coverPalette.text, paddingTop: 'var(--safe-top)' }}>
             {coverUi.customCss && <style dangerouslySetInnerHTML={{ __html: coverUi.customCss }} />}
-            <header className="relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ background: `${coverPalette.panel}e6`, borderColor: coverPalette.border }}>
+            {/* 封面图背景层 */}
+            {world.coverImage && <div className="absolute inset-0 z-0" style={{ backgroundImage: `url(${world.coverImage})`, backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.25, filter: 'blur(4px)' }} />}
+            {world.coverImage && <div className="absolute inset-0 z-0" style={{ background: `linear-gradient(to bottom, ${coverPalette.bg}dd 0%, ${coverPalette.bg}f8 100%)` }} />}
+            
+            <header className="relative z-10 flex shrink-0 items-center gap-2 border-b px-3 py-2.5" style={{ background: world.coverImage ? `${coverPalette.panel}f0` : `${coverPalette.panel}e6`, borderColor: coverPalette.border }}>
                 <button onClick={() => { setView('lobby'); setActiveWorld(null); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="返回世界库"><ArrowLeft size={19} /></button>
                 <div className="min-w-0 flex-1"><p className="truncate text-[9px] uppercase tracking-[.18em]" style={{ color: coverUi.accent }}>ECHOES</p><h1 className="truncate text-[14px] font-bold">{world.title}</h1></div>
                 <button onClick={() => { setSettingsSection('appearance'); setShowSettings(true); }} className="rounded-xl p-2 opacity-70 hover:bg-black/5" aria-label="世界设置"><GearSix size={17} /></button>
