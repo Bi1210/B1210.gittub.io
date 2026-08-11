@@ -1226,8 +1226,9 @@ const EchoesApp: React.FC = () => {
             protocol.sceneObservation ? '【场景观测】为本轮提供简短的 mood（2-5字）和 sceneType，必须服务于当前内容，不要用空泛标签。' : '',
             protocol.customInstructions ? `【协议补充】${protocol.customInstructions}` : '',
         ].filter(Boolean).join('\n') : '作者关闭了增强协议；仍须遵守硬事实、玩家能动性和基本安全输出约束。';
-        return `你是 Echoes 的动态小说导演。你负责让用户可以长期阅读并游玩一个由用户自定义的世界。\n\n` +
-`【世界】\n${world.title}\n${world.worldSetting}\n\n` +
+        return `你是 Echoes 的动态小说导演。你负责让用户可以长期阅读并游玩一个由用户自定义的世界。\n` +
+((() => { const min = world.writingGuide?.minWords||0; const max = world.writingGuide?.maxWords||0; if (!min && !max) return ``; if (min && max) return `\n【字数要求】本轮正文必须在 ${min}–${max} 字之间。在完整推进剧情的基础上，通过充分展开对话、行动和场景细节来达到字数。\n`; if (min) return `\n【字数要求】本轮正文不得少于 ${min} 字。在推进剧情的同时充分展开场景和人物反应，确保内容量达标。\n`; return `\n【字数要求】本轮正文不得超过 ${max} 字。\n`; })()) +
+`\n【世界】\n${world.title}\n${world.worldSetting}\n\n` +
 `【玩家身份】\n${world.playerIdentity || '由玩家在行动中逐步确定'}\n\n` +
 `【主要人物/阵营】\n${world.cast || '由世界自然生成，但必须保持前后一致'}\n\n` +
 `【游戏档位】${modeLabel(world.mode)}\n${getModeInstruction(world.mode)}\n` +
