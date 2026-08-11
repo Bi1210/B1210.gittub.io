@@ -2485,10 +2485,10 @@ const EchoesApp: React.FC = () => {
                 {activeWorld.turns.map((turn, index) => {
                     const isFresh = turn.id === freshTurnId && ui.typewriterEffect !== false;
                     const isHighlighted = (activeWorld.highlights ?? []).some(h => h.turnId === turn.id);
-                    return <article key={turn.id} data-echoes-turn={turn.id} className={`relative select-none ${index === activeWorld.turns.length - 1 ? '' : 'opacity-[.88]'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-2xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: `${palette.panel}cc`, borderColor: palette.border } : undefined}>
-                        {/* 收藏到回想按钮 */}
-                        <button onClick={() => void addHighlight(turn)} className="absolute right-2 top-2 rounded-lg p-1.5 text-white/20 transition hover:bg-white/5 hover:text-white/40" aria-label={isHighlighted ? '已收藏' : '收藏到回想'} style={isHighlighted ? { color: ui.accent, opacity: 0.6 } : undefined}>
-                            <BookmarkSimple size={14} weight={isHighlighted ? 'fill' : 'regular'} />
+                    return <article key={turn.id} data-echoes-turn={turn.id} className={`group relative select-none ${index === activeWorld.turns.length - 1 ? '' : 'opacity-[.88]'} ${activeWorld.ui.layout === 'terminal' ? 'rounded-2xl border p-4' : ''}`} style={activeWorld.ui.layout === 'terminal' ? { background: `${palette.panel}cc`, borderColor: palette.border } : undefined}>
+                        {/* 左侧书签按钮，hover 时显示 */}
+                        <button onClick={() => void addHighlight(turn)} className={`absolute -left-8 top-2 rounded p-1 transition-opacity ${isHighlighted ? 'opacity-60' : 'opacity-0 group-hover:opacity-30'} hover:!opacity-60`} aria-label={isHighlighted ? '已收藏' : '收藏到回想'} style={{ color: ui.accent }}>
+                            <BookmarkSimple size={16} weight={isHighlighted ? 'fill' : 'regular'} />
                         </button>
                         
                         {index > 0 && <div className="mb-3 flex items-center gap-2 text-[10px]" style={{ color: palette.muted }}><span className="h-px flex-1" style={{ background: palette.border }} /><span>{turn.chapter || activeWorld.state.chapter}</span><span className="h-px flex-1" style={{ background: palette.border }} /></div>}
