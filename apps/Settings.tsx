@@ -34,7 +34,7 @@ import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
 import { pullLatestGameResources } from '../utils/gameUpdate';
-import { CURRENT_VERSION, VERSION_DATE, VERSION_LOGS } from '../utils/version';
+import { CURRENT_VERSION, VERSION_DATE, VERSION_LOGS, getLastSeenVersion, setLastSeenVersion, getVersionsSince } from '../utils/version';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -570,7 +570,7 @@ const Settings: React.FC = () => {
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showUpdateProgress, setShowUpdateProgress] = useState(false);
   const [updateProgressStatus, setUpdateProgressStatus] = useState<'checking' | 'downloading' | 'failed'>('checking');
-  const [newVersions, setNewVersions] = useState(VERSION_LOGS);
+  const [newVersions, setNewVersions] = useState<VersionLog[]>([]);
 
   // 模型选择 Modal 的过滤 + 公共前缀（memo 掉，避免每次 Settings 重渲染都重算）
   const modelPickerView = useMemo(() => {
@@ -2798,7 +2798,11 @@ const Settings: React.FC = () => {
                     <button
                         type="button"
                         onClick={() => {
-                            setNewVersions(VERSION_LOGS);
+                            const lastSeen = getLastSeenVersion();
+                            const versionsToShow = lastSeen
+                                ? getVersionsSince(lastSeen)
+                                : VERSION_LOGS;
+                            setNewVersions(versionsToShow);
                             setShowWhatsNew(true);
                             trackEvent('手动查看更新日志');
                         }}
@@ -2890,6 +2894,7 @@ const Settings: React.FC = () => {
           isOpen={showWhatsNew}
           title="🎉 游戏已更新"
           onClose={() => {
+              setLastSeenVersion(CURRENT_VERSION);
               setShowWhatsNew(false);
               trackEvent('关闭更新日志弹窗', { version: CURRENT_VERSION });
           }}
@@ -2897,6 +2902,7 @@ const Settings: React.FC = () => {
               <button
                   type="button"
                   onClick={() => {
+                      setLastSeenVersion(CURRENT_VERSION);
                       setShowWhatsNew(false);
                       trackEvent('确认查看更新日志', { version: CURRENT_VERSION });
                   }}
